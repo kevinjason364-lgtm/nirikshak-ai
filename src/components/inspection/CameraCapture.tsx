@@ -22,6 +22,7 @@ const slotLabels: Record<ImageSlot, string> = {
 
 export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
   const [activeSlot, setActiveSlot] = useState<ImageSlot | null>(null);
+  const activeSlotRef = useRef<ImageSlot | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [qualityResults, setQualityResults] = useState<Record<string, ImageQualityResult>>({});
@@ -258,7 +259,11 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
                       fullWidth
                       onClick={() => {
                         setActiveSlot(slot);
-                        fileInputRef.current?.click();
+                        activeSlotRef.current = slot;
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = '';
+                          fileInputRef.current.click();
+                        }
                       }}
                     >
                       Upload
@@ -279,8 +284,9 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file && activeSlot) {
-            handleFileUpload(activeSlot, file);
+          const targetSlot = activeSlotRef.current || activeSlot;
+          if (file && targetSlot) {
+            handleFileUpload(targetSlot, file);
           }
           e.target.value = '';
         }}

@@ -133,16 +133,21 @@ export async function POST(request: NextRequest) {
     const result = await provider.extract(validation.images!);
 
     if (!result.success) {
-      console.warn('[Extract API] Extraction failed:', result.error);
+      console.warn('[Extract API] Extraction result indicates failure:', result.error);
+
+      const isRateLimit = result.error?.includes('rate limit') || result.error?.includes('429');
+      const statusCode = isRateLimit ? 429 : 500;
+
       return NextResponse.json(
         {
           success: false,
           extraction: null,
           error: result.error || 'Vision AI extraction failed',
           fallback: true,
-          rawResponse: result.rawResponse, // Include for diagnostics
+          rawResponse: result.rawResponse,
+          isRateLimit,
         },
-        { status: 500 }
+        { status: statusCode }
       );
     }
 

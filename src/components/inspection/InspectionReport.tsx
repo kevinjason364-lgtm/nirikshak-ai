@@ -12,11 +12,12 @@ import { getRulesMetadata } from '@/lib/rule-engine';
 interface InspectionReportViewProps {
   report: ReportType;
   onBack: () => void;
+  onNewInspection?: () => void;
 }
 
 type FilterType = 'all' | RuleResultStatus;
 
-export function InspectionReportView({ report, onBack }: InspectionReportViewProps) {
+export function InspectionReportView({ report, onBack, onNewInspection }: InspectionReportViewProps) {
   const [filter, setFilter] = useState<FilterType>('all');
   const metadata = getRulesMetadata();
 
@@ -56,9 +57,16 @@ export function InspectionReportView({ report, onBack }: InspectionReportViewPro
 
       {/* Actions (hidden in print) */}
       <div className="flex items-center justify-between print:hidden">
-        <Button variant="ghost" onClick={onBack}>
-          ← Back
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={onBack}>
+            ← Back to Form
+          </Button>
+          {onNewInspection && (
+            <Button variant="outline" onClick={onNewInspection}>
+              + New Inspection
+            </Button>
+          )}
+        </div>
         <Button variant="outline" onClick={handlePrint}>
           🖨️ Print / Save PDF
         </Button>

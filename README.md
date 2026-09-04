@@ -239,6 +239,59 @@ Each entry should include:
 
 ---
 
+### 2026-09-04 — Phase 1 Stability & API Reliability
+
+- **Status:** Implemented & Verified
+- **What changed:**
+  1. **Server-Side Resilient JSON Parsing (`src/lib/vision/gemini.ts` & `src/app/api/extract/route.ts`):**
+     - Enhanced Gemini response JSON extraction using multi-stage regex matching (markdown blocks ` ```json ... ``` ` and curly braces `{ ... }`).
+     - Added automatic sanitization of trailing commas prior to `JSON.parse`.
+     - Wrapped parsing in controlled try-catch returning structured `{ success: false, fallback: true }` responses with descriptive messages instead of throwing uncaught exceptions causing unhandled HTTP 500 crashes.
+  2. **Graceful Rate-Limit & Backoff Handling (`src/lib/vision/gemini.ts` & `src/app/api/extract/route.ts`):**
+     - Detected HTTP 429 (`RESOURCE_EXHAUSTED`) and HTTP 503 (`SERVICE_UNAVAILABLE`) responses explicitly.
+     - Reduced retry count from 3 aggressive retries to at most 1 brief delay (1000ms) for transient 503s only.
+     - Completely bypassed retry loops on 429 and 400 status codes to avoid spamming the Gemini API.
+     - Propagated clear, friendly messages to the user and signaled automatic seamless fallback to local OCR.
+  3. **Duplicate & Concurrent Extraction Prevention (`src/app/inspect/page.tsx`):**
+     - Introduced an immediate synchronous `isProcessingRef` execution lock alongside React state `isProcessing`.
+     - Disabled extraction trigger actions during active processing to prevent accidental parallel/duplicate requests.
+     - Ensured clean unlocking in `finally` blocks so new extractions can proceed normally once complete.
+  4. **Repeated Same-Image Selection & State Reset Fix (`src/components/inspection/CameraCapture.tsx`, `src/app/inspect/page.tsx`, `src/components/inspection/InspectionReport.tsx`):**
+     - Added `activeSlotRef` to eliminate React closure stale state when file picker dialogs execute asynchronously.
+     - Explicitly reset `fileInputRef.current.value = ''` before opening and after file selection to allow re-uploading the exact same image file.
+     - Ensured `mergeFormData` merges newly extracted candidate fields onto a fresh `getEmptyFormData()` instead of previous form state, preventing cross-inspection state contamination.
+     - Added "+ New Inspection" action in `InspectionReportView` and connected clean state resets in `handleNewInspection`.
+- **Why:** Resolve all 4 Phase 1 stability vulnerability points identified during live extraction testing without modifying the Gemini model, lowering confidence thresholds, altering LMPC compliance rules, or using hard-coded values.
+- **Files affected:**
+  - `src/lib/vision/gemini.ts`
+  - `src/lib/vision/types.ts`
+  - `src/app/api/extract/route.ts`
+  - `src/components/inspection/CameraCapture.tsx`
+  - `src/components/inspection/InspectionReport.tsx`
+  - `src/app/inspect/page.tsx`
+  - `README.md`
+- **Verification performed:**
+  - `npm run typecheck` — **PASSED** (0 TypeScript errors)
+  - `npm run lint` — **PASSED** (0 ESLint errors/warnings)
+  - `npm run build` — **PASSED** (6/6 static pages compiled cleanly)
+  - Unit tests for OCR parsing & Hybrid merger (`npx tsx tests/ocr-parser.test.ts`, `npx tsx tests/hybrid-merger.test.ts`) — **PASSED**
+  - **Live Runtime Stability & Extraction Verification (`tests/verify-phase1-runtime.ts` via Playwright):**
+    - **Test 1 (Product 1 Real Extraction):** **PASS** — Extracted Green Tea packaging (`green tea front.jpeg`, `green tea back.jpeg`, `green tea side.jpeg`). `POST /api/extract` executed once; `productName="GREEN TEA LEMON"` populated automatically in form.
+    - **Test 2 (Product 2 Real Extraction - Different Product):** **PASS** — Cleared slots and extracted Red Label tea packaging (`red label f.jpeg`, `redlabel side.jpeg`, `red label top.jpeg`). `POST /api/extract` executed once; `productName="Red Label"` populated with distinct metadata (`differentFromP1=true`, brand `"Brooke Bond"`, MRP `290`, net qty `500g`, FSSAI `"10013022001897"`).
+    - **Test 3 (Product 1 Re-run - Same Files 2nd time):** **PASS** — Re-uploaded Green Tea images after reset; `POST /api/extract` executed once and cleanly extracted `productName="GREEN TEA LEMON"`.
+    - **Test 4 (Product 1 3rd run - Retained Slots):** **PASS** — Re-triggered extraction with images remaining in capture slots; `POST /api/extract` executed once, returning `productName="GREEN TEA LEMON"`.
+    - **Test 5 (Identical File Re-selection Trigger):** **PASS** — Removed first slot and selected the exact same file `green tea front.jpeg`. Input reset pattern (`value = ''`) allowed browser `change` event to fire without hanging; extraction succeeded with `productName="GREEN TEA LEMON"`.
+    - **Test 6 (Rapid Repeated Clicking / Concurrency Guard):** **PASS** — Dispatched 3 rapid clicks to extraction trigger. Immediate synchronous `isProcessingRef` lock blocked duplicate calls; observed exactly 1 network `POST /api/extract` request.
+    - **Test 7 (Post-Extraction Lock Release):** **PASS** — Initiated fresh extraction after previous run completed. Lock released cleanly in `finally` block; extraction executed normally (`productName="GREEN TEA LEMON"`).
+    - **Test 8 (429/503 Error Handling):** **NOT PERFORMED (Live Runtime)** / **VERIFIED (Code Review)** — Deliberately omitted live spamming of Gemini API quotas. Code audit of `src/lib/vision/gemini.ts` and `src/app/api/extract/route.ts` confirms: HTTP 429 flagged as rate-limit with 0 retries; HTTP 503 limited to 1 retry (1000ms delay); both return `{ success: false, fallback: true }` enabling graceful client-side local OCR fallback.
+    - **Runtime Summary:** 7 PASS, 0 FAIL, 1 NOT PERFORMED (0 browser console errors, 7 total POST calls).
+- **Known limitations:**
+  - Gemini API free tier remains subject to standard Google quotas (15 RPM / 1M TPM / 1,500 RPD); graceful local OCR fallback is automatically triggered when quotas are reached.
+  - Smeared or optically ambiguous packaging text will continue to require manual inspector confirmation by design.
+- **Next step:** Await review of Phase 1 changes before creating git checkpoint and proceeding to Phase 2.
+
+---
+
 ### 2026-09-04 — Multi-Product Live Extraction Validation
 
 - **Status:** Verified — Ambiguous Dates Handled Properly 

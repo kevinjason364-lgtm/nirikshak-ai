@@ -137,9 +137,9 @@ export class GeminiVisionProvider implements VisionProvider {
 
       let response: Response | null = null;
       let retries = 0;
-      const MAX_RETRIES = 3;
+      const MAX_RETRIES = 1;
 
-      while (retries < MAX_RETRIES) {
+      while (retries <= MAX_RETRIES) {
         console.log(`[Gemini Vision] Calling API (attempt ${retries + 1})...`);
         response = await fetch(url, {
           method: 'POST',
@@ -147,18 +147,39 @@ export class GeminiVisionProvider implements VisionProvider {
           body: JSON.stringify(requestBody),
         });
 
-        if (response.ok || response.status !== 503) break;
+        if (response.ok) break;
+
+        // Don't retry on 429 (Rate Limit) or 400 (Bad Request)
+        if (response.status === 429 || response.status === 400 || response.status !== 503) break;
+        if (retries === MAX_RETRIES) break;
 
         retries++;
-        console.warn(`[Gemini Vision] API 503, retrying in ${retries * 2000}ms...`);
-        await new Promise(resolve => setTimeout(resolve, retries * 2000));
+        console.warn(`[Gemini Vision] API 503, retrying in 1000ms...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
       if (!response || !response.ok) {
         const errorText = response ? await response.text() : 'No response received';
         const status = response ? response.status : 500;
         console.error('[Gemini Vision] API error:', status, errorText);
-        throw new Error(`Gemini API error: ${status} ${errorText}`);
+
+        // Check for specific api errors
+        let errorMsg = `Gemini API error ${status}`;
+        if (status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
+          errorMsg = 'Vision AI rate limit reached. Please try again in a moment or use OCR fallback.';
+        } else if (status === 503) {
+          errorMsg = 'Vision AI service is temporarily overloaded. Falling back to OCR.';
+        } else {
+          errorMsg = `Gemini API error: ${status} ${errorText.substring(0, 100)}`;
+        }
+
+        return {
+          success: false,
+          candidate: {},
+          confidence: {},
+          error: errorMsg,
+          isRateLimit: status === 429,
+        };
       }
 
       const data = await response.json();
@@ -181,12 +202,33 @@ export class GeminiVisionProvider implements VisionProvider {
       // Parse JSON response
       let parsed: VisionExtractionCandidate;
       try {
-        // Clean markdown code blocks if present
-        const cleaned = textResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        let cleaned = textResponse;
+
+        // 1. Try to find JSON inside markdown blocks
+        const jsonBlockMatch = textResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (jsonBlockMatch) {
+            cleaned = jsonBlockMatch[1];
+        } else {
+            // 2. Try to find curly braces
+            const braceMatch = textResponse.match(/\{[\s\S]*\}/);
+            if (braceMatch) {
+                cleaned = braceMatch[0];
+            }
+        }
+
+        // Cleanup trailing commas which break JSON.parse
+        cleaned = cleaned.replace(/,\s*([\}\]])/g, '$1').trim();
+
         parsed = JSON.parse(cleaned);
       } catch (parseError: any) {
-        console.error('[Gemini Vision] JSON parse error:', parseError);
-        throw new Error(`Failed to parse Gemini JSON response: ${parseError.message}`);
+        console.error('[Gemini Vision] JSON parse error:', parseError, 'Raw response string snippet:', textResponse.substring(0, 150));
+
+        return {
+          success: false,
+          candidate: {},
+          confidence: {},
+          error: `Failed to parse Vision AI JSON: ${parseError.message}`,
+        };
       }
 
       console.log('[Gemini Vision] Extracted fields:', Object.keys(parsed).filter(k => parsed[k as keyof VisionExtractionCandidate]));

@@ -44,6 +44,7 @@ export interface VisionProviderResponse {
   rawResponse?: any;
   error?: string;
   confidence: Record<string, number>;
+  isRateLimit?: boolean;
 }
 
 /**

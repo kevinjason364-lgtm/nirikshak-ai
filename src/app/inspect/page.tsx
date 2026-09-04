@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
 import { Button } from '@/components/ui/Button';
@@ -27,6 +27,7 @@ export default function InspectPage() {
   const [sourceMap, setSourceMap] = useState<Record<string, string>>({});
   const [report, setReport] = useState<InspectionReport | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const isProcessingRef = useRef(false);
   const [extractionDiagnostics, setExtractionDiagnostics] = useState<any>(null);
   const [extractionStatusMessage, setExtractionStatusMessage] = useState<string>('');
   const [visionAIAvailable, setVisionAIAvailable] = useState<boolean>(true);
@@ -86,8 +87,12 @@ export default function InspectPage() {
   }, []);
 
   const handleContinueToForm = async () => {
+    if (isProcessingRef.current) return;
+
     if (images.length > 0) {
+      isProcessingRef.current = true;
       setIsProcessing(true);
+      setExtractionDiagnostics(null);
       setExtractionStatusMessage(visionAIAvailable
         ? 'Running Vision AI + OCR hybrid extraction...'
         : 'Extracting text via OCR...');
@@ -101,10 +106,10 @@ export default function InspectPage() {
 
         setExtractionDiagnostics(result.diagnostics || null);
 
-        // Deep merge extracted data with existing form data
-        const newFormData = mergeFormData(formData, result.formData);
+        // Always merge new extraction onto a fresh empty form to prevent cross-inspection contamination
+        const newFormData = mergeFormData(getEmptyFormData(), result.formData);
         setFormData(newFormData);
-        setConfidence(result.confidence);
+        setConfidence(result.confidence || {});
         setSourceMap(result.sourceMap || {});
 
         const status = result.extractionStatus;
@@ -157,10 +162,15 @@ export default function InspectPage() {
         setExtractionMethod('manual');
         setExtractionStatusMessage('Could not process the label images. Please enter details manually.');
       } finally {
+        isProcessingRef.current = false;
         setIsProcessing(false);
         setStep('form');
       }
     } else {
+      setFormData(getEmptyFormData());
+      setConfidence({});
+      setSourceMap({});
+      setExtractionDiagnostics(null);
       setExtractionMethod('manual');
       setExtractionStatusMessage('');
       setStep('form');
@@ -198,6 +208,11 @@ export default function InspectPage() {
     setImages([]);
     setFormData(getEmptyFormData());
     setReport(null);
+    setConfidence({});
+    setSourceMap({});
+    setExtractionDiagnostics(null);
+    setExtractionMethod('manual');
+    setExtractionStatusMessage('');
     setStep('images');
   };
 
@@ -210,7 +225,13 @@ export default function InspectPage() {
   };
 
   if (step === 'report' && report) {
-    return <InspectionReportView report={report} onBack={handleBack} />;
+    return (
+      <InspectionReportView
+        report={report}
+        onBack={handleBack}
+        onNewInspection={handleNewInspection}
+      />
+    );
   }
 
   return (
