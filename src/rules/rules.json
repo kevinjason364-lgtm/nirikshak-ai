@@ -1,0 +1,133 @@
+[
+  {
+    "id": "LMPC-R6-1-a",
+    "ruleRef": "Rule 6(1)(a)",
+    "title": "Manufacturer / Packer / Importer Identification",
+    "description": "Every package shall bear the name and address of the manufacturer, or where the manufacturer is not the packer, the name and address of the manufacturer and packer. In case of imported packages, the name and address of the importer shall be mentioned on the package.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(1)(a)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-R6-1-aa",
+    "ruleRef": "Rule 6(1)(aa)",
+    "title": "Country of Origin for Imported Products",
+    "description": "In case of imported packages, the country of origin shall be declared on the package.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(1)(aa)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all",
+    "requiresImported": true
+  },
+  {
+    "id": "LMPC-R6-1-b",
+    "ruleRef": "Rule 6(1)(b)",
+    "title": "Common or Generic Name of Product",
+    "description": "Every package shall bear the common or generic name of the commodity contained in the package.",
+    "severity": "recommended",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(1)(b)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-R6-1-c",
+    "ruleRef": "Rule 6(1)(c)",
+    "title": "Net Quantity Declaration",
+    "description": "Every package shall bear the net quantity of the commodity in terms of standard unit of weight or measure. Where the commodity is sold by number, the number of commodity contained in the package shall be mentioned.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(1)(c)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-R6-1-e",
+    "ruleRef": "Rule 6(1)(e)",
+    "title": "Maximum Retail Price (MRP)",
+    "description": "Every package shall bear the retail sale price of the package. The retail sale price shall be the maximum price at which the commodity in packaged form may be sold to the ultimate consumer. This price shall be inclusive of all taxes.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(1)(e)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-R6-1-f",
+    "ruleRef": "Rule 6(1)(f)",
+    "title": "Dimensions Declaration",
+    "description": "Where the sizes or dimensions of the commodity contained in the package are relevant, the package shall bear such dimensions.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(1)(f)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-R6-1-da",
+    "ruleRef": "Rule 6(1)(da)",
+    "title": "Best Before / Use-By Date",
+    "description": "Every package of a commodity which may, after a period of time, become unfit for human consumption shall bear the month and year by which the commodity is best used, or the use by date, and the month and year of its manufacture or packing.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(1)(da)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-R6-2",
+    "ruleRef": "Rule 6(2)",
+    "title": "Consumer Care Details",
+    "description": "Every package shall bear the name or designation, address, telephone number, and email address of the person or office who or which can be contacted in case of consumer complaint.",
+    "severity": "recommended",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(2)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-R6-8",
+    "ruleRef": "Rule 6(8)",
+    "title": "Cosmetics Origin Symbol",
+    "description": "In case of Cosmetics, a symbol indicating whether the cosmetic product is of vegetarian origin or non-vegetarian origin shall be displayed on the principal display panel. Green dot for vegetarian, red/brown dot for non-vegetarian origin.",
+    "severity": "recommended",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(8)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": ["cosmetics"]
+  },
+  {
+    "id": "LMPC-R6-4A",
+    "ruleRef": "Rule 6(4-A)",
+    "title": "Barcode / GTIN / QR Code",
+    "description": "The manufacturer or packer or importer may indicate the retail sale price on the package by way of stamps or stickers or online printing or by way of any other means including bar code, Quick Response Code (QR Code) with Global Trade Item Number (GTIN).",
+    "severity": "supplementary",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rule 6(4-A)",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-VIS-AFFIXED",
+    "ruleRef": "Rules 4, 7, 8, 9, 10",
+    "title": "Declaration Securely Affixed",
+    "description": "Every declaration required to be made on any package shall not be easily separable from the package. Inspector confirmation required.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rules 4, 7",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-VIS-LEGIBLE",
+    "ruleRef": "Rules 4, 7, 8, 9, 10",
+    "title": "Declaration Legible and Conspicuous",
+    "description": "Every declaration shall be in such form and manner as to be plain, definite and conspicuous, and shall be legible. Inspector confirmation required.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rules 4, 8, 9",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  },
+  {
+    "id": "LMPC-VIS-PANEL",
+    "ruleRef": "Rules 4, 7, 8, 9, 10",
+    "title": "Declaration on Principal Display Panel",
+    "description": "Every declaration shall be made on the principal display panel or otherwise visibly placed on the package. Inspector confirmation required.",
+    "severity": "mandatory",
+    "sourceReference": "Legal Metrology (Packaged Commodities) Rules, 2011 — Rules 4, 10",
+    "sourceUrl": "https://consumeraffairs.gov.in/pages/legal-metrology-act",
+    "applicableCategories": "all"
+  }
+]
