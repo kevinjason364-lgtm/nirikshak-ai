@@ -76,6 +76,13 @@ nirikshak-ai/
 
 ## Development Log
 
+### Phase 3 (2026-09-09)
+- Optimized canvas image preprocessing for mobile packaging with non-destructive luminance, adaptive percentile contrast clipping, and gentle gamma curve to preserve thin text.
+- Re-architected Tesseract worker lifecycle to use a shared singleton instance, eliminating cold-start delays across multi-image analysis passes.
+- Enhanced UX with step progress indicators, animated extraction states, and real-time status messaging.
+- Hardened server-side Vision API route with strict payload validation, secure API key isolation, 429 (Rate Limit) recovery, and seamless automated cascade to OCR-only fallback.
+- Finalized end-to-end architecture documentation, LMPC constraint specifications, and security policies.
+
 ### Phase 2 (2026-09-09)
 - Implemented field-specific strict validation engine for LMPC fields (MRP, Net Qty, Dates, etc.) to reject garbage OCR fragments.
 - Implemented qualitative confidence tiers (High/Medium/Low/Needs Review) for hybrid consensus merging.
