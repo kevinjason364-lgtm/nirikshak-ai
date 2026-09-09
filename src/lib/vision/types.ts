@@ -70,11 +70,20 @@ export interface VisionImageInput {
 export type ExtractionSource = 'ocr' | 'ai' | 'ocr+ai' | 'manual';
 
 /**
+ * Qualitative confidence tiers
+ */
+export type QualitativeConfidence = 'High' | 'Medium' | 'Low' | 'Needs Review';
+
+/**
  * Field-level extraction metadata
  */
 export interface FieldExtractionMeta {
   source: ExtractionSource;
   confidence: number;
+  qualitativeConfidence?: QualitativeConfidence;
+  sourceSide?: 'front' | 'back' | 'side-other' | 'unknown' | 'multiple';
   ocrValue?: string;
   aiValue?: string;
+  ocrEvidenceSnippet?: string;
+  aiEvidenceSnippet?: string;
 }

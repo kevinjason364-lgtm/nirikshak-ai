@@ -13,6 +13,7 @@ interface InspectionFormProps {
   statusMessage?: string;
   extractionDiagnostics?: any;
   sourceMap?: Record<string, string>; // Field-level extraction source: 'ocr', 'ai', 'ocr+ai', 'manual'
+  metadata?: Record<string, any>; // FieldExtractionMeta
 }
 
 export function InspectionForm({
@@ -23,6 +24,7 @@ export function InspectionForm({
   statusMessage = '',
   extractionDiagnostics,
   sourceMap = {},
+  metadata = {},
 }: InspectionFormProps) {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
@@ -127,7 +129,13 @@ export function InspectionForm({
       <Card>
         <h3 className="text-base font-semibold text-navy-900 mb-4">Product Information</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormField label="Product Name" required confidence={confidence['productName']} source={sourceMap['productName']}>
+          <FormField
+            label="Product Name"
+            required
+            confidence={confidence['productName']}
+            source={sourceMap['productName']}
+            metadata={metadata['productName']}
+          >
             <Input
               value={formData.productName}
               onChange={(e) => update('productName', e.target.value)}
@@ -140,6 +148,7 @@ export function InspectionForm({
             hint="Separate from brand name where possible"
             confidence={confidence['commonGenericName']}
             source={sourceMap['commonGenericName']}
+            metadata={metadata['commonGenericName']}
           >
             <Input
               value={formData.commonGenericName}
@@ -148,7 +157,12 @@ export function InspectionForm({
             />
           </FormField>
 
-          <FormField label="Brand" confidence={confidence['brand']} source={sourceMap['brand']}>
+          <FormField
+            label="Brand"
+            confidence={confidence['brand']}
+            source={sourceMap['brand']}
+            metadata={metadata['brand']}
+          >
             <Input
               value={formData.brand}
               onChange={(e) => update('brand', e.target.value)}
@@ -276,6 +290,7 @@ export function InspectionForm({
             hint="Maximum Retail Price in Indian currency"
             confidence={confidence['mrp.value']}
             source={sourceMap['mrp']}
+            metadata={metadata['mrp']}
           >
             <Input
               type="number"
@@ -352,6 +367,7 @@ export function InspectionForm({
                 required
                 confidence={confidence['netQuantity.value']}
                 source={sourceMap['netQuantity']}
+                metadata={metadata['netQuantity']}
               >
                 <Input
                   type="number"
@@ -399,6 +415,7 @@ export function InspectionForm({
             required
             confidence={confidence['manufacturer.name']}
             source={sourceMap['manufacturer']}
+            metadata={metadata['manufacturer.name']}
           >
             <Input
               value={formData.manufacturer.name}
@@ -410,6 +427,7 @@ export function InspectionForm({
             label="Address"
             required
             confidence={confidence['manufacturer.address']}
+            metadata={metadata['manufacturer.address']}
           >
             <Input
               value={formData.manufacturer.address}
@@ -428,6 +446,7 @@ export function InspectionForm({
                 required
                 confidence={confidence['importer.name']}
                 source={sourceMap['importer']}
+                metadata={metadata['importer.name']}
               >
                 <Input
                   value={formData.importer.name}
@@ -439,6 +458,7 @@ export function InspectionForm({
                 label="Importer Address"
                 required
                 confidence={confidence['importer.address']}
+                metadata={metadata['importer.address']}
               >
                 <Input
                   value={formData.importer.address}
@@ -451,6 +471,7 @@ export function InspectionForm({
                 required
                 confidence={confidence['countryOfOrigin']}
                 source={sourceMap['countryOfOrigin']}
+                metadata={metadata['countryOfOrigin']}
               >
                 <Input
                   value={formData.countryOfOrigin}
@@ -471,6 +492,7 @@ export function InspectionForm({
             label="Manufacture Month"
             confidence={confidence['manufactureMonth']}
             source={sourceMap['manufactureMonth']}
+            metadata={metadata['manufactureMonth']}
           >
             <Select
               value={formData.manufactureMonth}
@@ -489,6 +511,7 @@ export function InspectionForm({
             label="Manufacture Year"
             confidence={confidence['manufactureYear']}
             source={sourceMap['manufactureYear']}
+            metadata={metadata['manufactureYear']}
           >
             <Input
               type="number"
@@ -536,6 +559,8 @@ export function InspectionForm({
                 label="Best Before Month"
                 required
                 confidence={confidence['bestBefore.month']}
+                source={sourceMap['bestBefore']}
+                metadata={metadata['bestBefore.month']}
               >
                 <Select
                   value={formData.bestBefore.month}
@@ -553,6 +578,8 @@ export function InspectionForm({
                 label="Best Before Year"
                 required
                 confidence={confidence['bestBefore.year']}
+                source={sourceMap['bestBefore']}
+                metadata={metadata['bestBefore.year']}
               >
                 <Input
                   type="number"
@@ -575,6 +602,8 @@ export function InspectionForm({
           <FormField
             label="Contact Person / Office Name"
             confidence={confidence['consumerCare.contactName']}
+            source={sourceMap['consumerCare']}
+            metadata={metadata['consumerCare.contactName']}
           >
             <Input
               value={formData.consumerCare.contactName}
@@ -585,6 +614,8 @@ export function InspectionForm({
           <FormField
             label="Address"
             confidence={confidence['consumerCare.address']}
+            source={sourceMap['consumerCare']}
+            metadata={metadata['consumerCare.address']}
           >
             <Input
               value={formData.consumerCare.address}
@@ -596,6 +627,7 @@ export function InspectionForm({
             label="Telephone Number"
             confidence={confidence['consumerCare.phone']}
             source={sourceMap['consumerCare']}
+            metadata={metadata['consumerCare.phone']}
           >
             <Input
               type="tel"
@@ -608,6 +640,7 @@ export function InspectionForm({
             label="Email Address"
             confidence={confidence['consumerCare.email']}
             source={sourceMap['consumerCare']}
+            metadata={metadata['consumerCare.email']}
           >
             <Input
               type="email"
@@ -738,6 +771,7 @@ export function InspectionForm({
             label="Batch / Lot Number"
             confidence={confidence['supplementary.batchLot']}
             source={sourceMap['supplementary.batchLot']}
+            metadata={metadata['supplementary.batchLot']}
           >
             <Input
               value={formData.supplementary.batchLot}
@@ -749,6 +783,7 @@ export function InspectionForm({
             label="Barcode / GTIN / QR"
             confidence={confidence['supplementary.barcode']}
             source={sourceMap['supplementary.barcode']}
+            metadata={metadata['supplementary.barcode']}
           >
             <Input
               value={formData.supplementary.barcode}
@@ -761,6 +796,7 @@ export function InspectionForm({
             hint="For food products"
             confidence={confidence['supplementary.fssaiLicence']}
             source={sourceMap['supplementary.fssaiLicence']}
+            metadata={metadata['supplementary.fssaiLicence']}
           >
             <Input
               value={formData.supplementary.fssaiLicence}
@@ -834,6 +870,48 @@ export function InspectionForm({
                       <span key={f} className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded">
                         {f} ({confidence[f]}%)
                       </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {Object.keys(metadata || {}).length > 0 && (
+                <div className="mb-4">
+                  <span className="font-semibold text-blue-800 block mb-2">Hybrid Merge Diagnostics:</span>
+                  <div className="space-y-3">
+                    {Object.entries(metadata).map(([field, meta]: [string, any]) => (
+                      <div key={field} className="p-2 border border-blue-200 bg-white rounded">
+                        <div className="flex justify-between items-start mb-1">
+                          <span className="font-semibold text-blue-900">{field}</span>
+                          <div className="flex items-center gap-1">
+                            <span className="px-1 py-0.5 text-[10px] bg-gray-100 border border-gray-200 rounded">
+                              Score: {meta.confidence ?? 'N/A'}
+                            </span>
+                            <span className={`px-1 py-0.5 text-[10px] rounded border ${
+                              meta.source === 'ocr+ai' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                              meta.source === 'manual' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                              'bg-gray-100 text-gray-700 border-gray-300'
+                            }`}>
+                              Source: {meta.source}
+                            </span>
+                            <span className="px-1 py-0.5 text-[10px] bg-slate-100 text-slate-700 border-slate-300 rounded">
+                              Panel: {meta.sourceSide}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-[10px] grid grid-cols-2 gap-2 mt-2">
+                          <div className="p-1.5 bg-gray-50 border border-gray-100 rounded">
+                            <span className="block text-gray-400 mb-0.5">OCR Value / Evidence:</span>
+                            <div className="break-words font-mono text-gray-700">{meta.ocrValue || '-'}</div>
+                            {meta.ocrEvidenceSnippet && <div className="mt-1 pt-1 border-t border-gray-200 break-words text-gray-500 italic">&ldquo;{meta.ocrEvidenceSnippet}&rdquo;</div>}
+                          </div>
+                          <div className="p-1.5 bg-gray-50 border border-gray-100 rounded">
+                            <span className="block text-gray-400 mb-0.5">Vision AI Value / Evidence:</span>
+                            <div className="break-words font-mono text-gray-700">{meta.aiValue || '-'}</div>
+                            {meta.aiEvidenceSnippet && <div className="mt-1 pt-1 border-t border-gray-200 break-words text-gray-500 italic">&ldquo;{meta.aiEvidenceSnippet}&rdquo;</div>}
+                          </div>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>

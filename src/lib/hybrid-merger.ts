@@ -1,24 +1,45 @@
 /**
  * Hybrid Extraction Merger — Nirikshak AI
  *
- * Combines OCR and Vision AI extraction candidates using conservative rules.
+ * Combines OCR and Vision AI extraction candidates using conservative, explainable rules.
  * Strategy:
- * 1. Both agree (or one is null/empty) -> use agreed/non-null value, tag as 'ocr+ai'
- * 2. Only OCR has value -> use OCR, tag as 'ocr'
- * 3. Only AI has value -> use AI, tag as 'ai'
- * 4. Both disagree significantly -> leave for manual review, tag as 'manual'
+ * 1. Both agree -> use agreed value, tag as 'ocr+ai', qualitative confidence 'High'
+ * 2. Only OCR has value -> use OCR, tag as 'ocr', derive qualitative tier from confidence
+ * 3. Only AI has value -> use AI, tag as 'ai', derive qualitative tier from confidence
+ * 4. Both disagree significantly -> leave for manual review, tag as 'manual', qualitative confidence 'Needs Review'
  *
- * Never trust a single source on critical fields like productName, MRP.
+ * Tracks spatial provenance (sourceSide) and verbatim evidence snippets for auditability.
+ * Never trust a single source uncritically on mandatory legal metrology fields.
  */
 
 import type { InspectionFormData } from '@/types';
-import type { VisionExtractionCandidate, FieldExtractionMeta, ExtractionSource } from '@/lib/vision/types';
+import type {
+  VisionExtractionCandidate,
+  FieldExtractionMeta,
+  ExtractionSource,
+  QualitativeConfidence,
+} from '@/lib/vision/types';
+import type { OCRField } from '@/lib/ocr-parser';
 
 export interface HybridMergeResult {
   formData: Partial<InspectionFormData>;
   confidence: Record<string, number>;
-  sourceMap: Record<string, ExtractionSource>; // Track extraction source per field
-  metadata: Record<string, FieldExtractionMeta>; // Detailed extraction metadata
+  sourceMap: Record<string, ExtractionSource>;
+  metadata: Record<string, FieldExtractionMeta>;
+}
+
+/**
+ * Determine qualitative confidence tier from source and numerical score
+ */
+export function getQualitativeConfidence(
+  source: ExtractionSource,
+  score: number
+): QualitativeConfidence {
+  if (source === 'manual') return 'Needs Review';
+  if (source === 'ocr+ai') return 'High';
+  if (score >= 80) return 'High';
+  if (score >= 60) return 'Medium';
+  return 'Low';
 }
 
 /**
@@ -58,13 +79,35 @@ function numbersAgree(a: number | null | undefined, b: number | null | undefined
 }
 
 /**
- * Merge OCR and Vision AI extraction candidates
+ * Normalize and compare month/year strings
+ */
+function datesAgree(
+  m1?: string | null,
+  y1?: string | null,
+  m2?: string | null,
+  y2?: string | null
+): boolean {
+  if (!m1 && !y1 && !m2 && !y2) return true;
+  const normM1 = m1 ? m1.padStart(2, '0') : '';
+  const normM2 = m2 ? m2.padStart(2, '0') : '';
+  const normY1 = y1 ? (y1.length === 2 ? '20' + y1 : y1) : '';
+  const normY2 = y2 ? (y2.length === 2 ? '20' + y2 : y2) : '';
+
+  const monthMatch = !normM1 || !normM2 || normM1 === normM2;
+  const yearMatch = !normY1 || !normY2 || normY1 === normY2;
+
+  return monthMatch && yearMatch && Boolean((normM1 && normM2) || (normY1 && normY2));
+}
+
+/**
+ * Merge OCR and Vision AI extraction candidates with explainability and spatial provenance
  */
 export function mergeExtractions(
   ocrCandidate: Partial<InspectionFormData>,
   ocrConfidence: Record<string, number>,
   aiCandidate: VisionExtractionCandidate,
-  aiConfidence: Record<string, number>
+  aiConfidence: Record<string, number>,
+  ocrFieldDetails?: Record<string, OCRField>
 ): HybridMergeResult {
   const formData: Partial<InspectionFormData> = {};
   const sourceMap: Record<string, ExtractionSource> = {};
@@ -107,8 +150,50 @@ export function mergeExtractions(
     },
   };
 
-  // Handle simple string fields
-  const stringFields: Array<keyof Omit<InspectionFormData, 'mrp' | 'netQuantity' | 'applicability' | 'bestBefore' | 'dimensions' | 'cosmeticOrigin' | 'visibility' | 'supplementary' | 'consumerCare' | 'manufacturer' | 'importer'>> = [
+  // Helper to record field meta
+  const recordFieldMeta = (
+    fieldKey: string,
+    source: ExtractionSource,
+    score: number,
+    ocrVal?: any,
+    aiVal?: any,
+    fieldDetailKey?: string
+  ) => {
+    const detailKey = fieldDetailKey || fieldKey;
+    const ocrDetail = ocrFieldDetails?.[detailKey];
+    const sourceSide = ocrDetail?.sourceSide || 'unknown';
+    const ocrEvidence = ocrDetail?.sourceLine || ocrDetail?.source;
+    const aiEvidence = aiVal ? String(aiVal) : undefined;
+
+    confidence[fieldKey] = score;
+    sourceMap[fieldKey] = source;
+    metadata[fieldKey] = {
+      source,
+      confidence: score,
+      qualitativeConfidence: getQualitativeConfidence(source, score),
+      sourceSide: source === 'ai' ? 'unknown' : sourceSide,
+      ocrValue: ocrVal ? String(ocrVal) : undefined,
+      aiValue: aiVal ? String(aiVal) : undefined,
+      ocrEvidenceSnippet: ocrEvidence,
+      aiEvidenceSnippet: aiEvidence,
+    };
+  };
+
+  // 1. Handle simple string fields
+  const stringFields: Array<keyof Omit<
+    InspectionFormData,
+    | 'mrp'
+    | 'netQuantity'
+    | 'applicability'
+    | 'bestBefore'
+    | 'dimensions'
+    | 'cosmeticOrigin'
+    | 'visibility'
+    | 'supplementary'
+    | 'consumerCare'
+    | 'manufacturer'
+    | 'importer'
+  >> = [
     'productName',
     'commonGenericName',
     'brand',
@@ -122,95 +207,102 @@ export function mergeExtractions(
     const aiVal = (aiMapped[field] as any) || '';
 
     if (stringsAgree(ocrVal, aiVal)) {
-      // Both agree or are equivalent
+      // Agreement
       formData[field] = ocrVal || aiVal;
-      sourceMap[field] = 'ocr+ai';
-      confidence[field] = Math.min(
-        (ocrConfidence[field] || 0) + 10,
-        100
-      ); // Boost confidence when both agree
-      metadata[field] = {
-        source: 'ocr+ai',
-        confidence: confidence[field],
-        ocrValue: ocrVal,
-        aiValue: aiVal,
-      };
+      const score = Math.min((ocrConfidence[field] || 0) + 10, 100);
+      recordFieldMeta(field, 'ocr+ai', score, ocrVal, aiVal);
     } else if (ocrVal && aiVal) {
-      // Both present but disagree — leave for manual review
-      console.warn(`[Hybrid Merger] Field "${field}" disagreement: OCR="${ocrVal}" vs AI="${aiVal}"`);
-      // Prefer higher confidence source for prefill, but flag as manual for inspector review
+      // Disagreement -> Manual review
       formData[field] = (aiConfidence[field] || 0) > (ocrConfidence[field] || 0) ? aiVal : ocrVal;
-      sourceMap[field] = 'manual';
-      confidence[field] = Math.max(ocrConfidence[field] || 0, aiConfidence[field] || 0) - 20; // Lower confidence
-      metadata[field] = {
-        source: 'manual',
-        confidence: confidence[field],
-        ocrValue: ocrVal,
-        aiValue: aiVal,
-      };
+      const score = Math.max(ocrConfidence[field] || 0, aiConfidence[field] || 0) - 20;
+      recordFieldMeta(field, 'manual', score, ocrVal, aiVal);
     } else if (ocrVal) {
-      // Only OCR has value
       formData[field] = ocrVal;
-      sourceMap[field] = 'ocr';
-      confidence[field] = ocrConfidence[field] || 0;
-      metadata[field] = {
-        source: 'ocr',
-        confidence: confidence[field],
-        ocrValue: ocrVal,
-      };
+      const score = ocrConfidence[field] || 0;
+      recordFieldMeta(field, 'ocr', score, ocrVal, undefined);
     } else if (aiVal) {
-      // Only AI has value
       formData[field] = aiVal;
-      sourceMap[field] = 'ai';
-      confidence[field] = aiConfidence[field] || 0;
-      metadata[field] = {
-        source: 'ai',
-        confidence: confidence[field],
-        aiValue: aiVal,
-      };
+      const score = aiConfidence[field] || 0;
+      recordFieldMeta(field, 'ai', score, undefined, aiVal);
     }
   }
 
-  // Handle MRP (nested object)
+  // 2. Handle MRP
   const ocrMrp = ocrCandidate.mrp;
-  const aiMrp = aiCandidate.mrp ? { value: aiCandidate.mrp, inclusiveOfAllTaxes: aiCandidate.mrpInclusiveTaxes } : null;
+  const aiMrp = aiCandidate.mrp
+    ? { value: aiCandidate.mrp, inclusiveOfAllTaxes: aiCandidate.mrpInclusiveTaxes }
+    : null;
 
   if (ocrMrp && aiMrp && numbersAgree(ocrMrp.value, aiMrp.value)) {
-    formData.mrp = ocrMrp;
-    sourceMap['mrp'] = 'ocr+ai';
-    confidence['mrp.value'] = Math.min((ocrConfidence['mrp.value'] || 0) + 10, 100);
+    formData.mrp = {
+      value: ocrMrp.value ?? aiMrp.value,
+      inclusiveOfAllTaxes: ocrMrp.inclusiveOfAllTaxes ?? aiMrp.inclusiveOfAllTaxes ?? true,
+      exemptionDeclared: false,
+    };
+    const score = Math.min((ocrConfidence['mrp.value'] || 0) + 10, 100);
+    recordFieldMeta('mrp', 'ocr+ai', score, ocrMrp.value, aiMrp.value, 'mrp.value');
   } else if (ocrMrp && aiMrp) {
-    console.warn(`[Hybrid Merger] MRP disagreement: OCR=${ocrMrp.value} vs AI=${aiMrp.value}`);
+    // Conflict on MRP
     formData.mrp = ocrMrp;
-    sourceMap['mrp'] = 'manual';
-    confidence['mrp.value'] = Math.max(ocrConfidence['mrp.value'] || 0, aiConfidence['mrp'] || 0) - 20;
+    const score = Math.max(ocrConfidence['mrp.value'] || 0, aiConfidence['mrp'] || 0) - 20;
+    recordFieldMeta('mrp', 'manual', score, ocrMrp.value, aiMrp.value, 'mrp.value');
   } else if (ocrMrp) {
     formData.mrp = ocrMrp;
-    sourceMap['mrp'] = 'ocr';
-    confidence['mrp.value'] = ocrConfidence['mrp.value'] || 0;
+    const score = ocrConfidence['mrp.value'] || 0;
+    recordFieldMeta('mrp', 'ocr', score, ocrMrp.value, undefined, 'mrp.value');
   } else if (aiMrp) {
-    formData.mrp = { ...aiMrp, exemptionDeclared: false, inclusiveOfAllTaxes: aiMrp.inclusiveOfAllTaxes ?? null };
-    sourceMap['mrp'] = 'ai';
-    confidence['mrp.value'] = aiConfidence['mrp'] || 0;
+    formData.mrp = {
+      value: aiMrp.value,
+      inclusiveOfAllTaxes: aiMrp.inclusiveOfAllTaxes ?? null,
+      exemptionDeclared: false,
+    };
+    const score = aiConfidence['mrp'] || 0;
+    recordFieldMeta('mrp', 'ai', score, undefined, aiMrp.value);
   }
 
-  // Handle Net Quantity (nested object)
+  // 3. Handle Net Quantity
   const ocrQty = ocrCandidate.netQuantity;
-  const aiQty = aiCandidate.netQuantity ? { value: aiCandidate.netQuantity, unit: aiCandidate.unit || '' } : null;
+  const aiQty = aiCandidate.netQuantity
+    ? { value: aiCandidate.netQuantity, unit: aiCandidate.unit || '' }
+    : null;
 
-  if (ocrQty && aiQty && numbersAgree(ocrQty.value, aiQty.value) && ocrQty.unit === aiQty.unit) {
-    formData.netQuantity = ocrQty;
-    sourceMap['netQuantity'] = 'ocr+ai';
-    confidence['netQuantity.value'] = Math.min((ocrConfidence['netQuantity.value'] || 0) + 10, 100);
+  if (
+    ocrQty &&
+    aiQty &&
+    numbersAgree(ocrQty.value, aiQty.value) &&
+    (!ocrQty.unit || !aiQty.unit || ocrQty.unit.toLowerCase() === aiQty.unit.toLowerCase())
+  ) {
+    formData.netQuantity = {
+      value: ocrQty.value ?? aiQty.value,
+      unit: ocrQty.unit || aiQty.unit,
+      itemCount: ocrQty.itemCount || null,
+      soldByNumber: ocrQty.soldByNumber || false,
+    };
+    const score = Math.min((ocrConfidence['netQuantity.value'] || 0) + 10, 100);
+    recordFieldMeta(
+      'netQuantity',
+      'ocr+ai',
+      score,
+      `${ocrQty.value} ${ocrQty.unit}`,
+      `${aiQty.value} ${aiQty.unit}`,
+      'netQuantity.value'
+    );
   } else if (ocrQty && aiQty) {
-    console.warn(`[Hybrid Merger] Quantity disagreement: OCR=${ocrQty.value} ${ocrQty.unit} vs AI=${aiQty.value} ${aiQty.unit}`);
+    // Conflict on Net Quantity
     formData.netQuantity = ocrQty;
-    sourceMap['netQuantity'] = 'manual';
-    confidence['netQuantity.value'] = Math.max(ocrConfidence['netQuantity.value'] || 0, aiConfidence['netQuantity'] || 0) - 20;
+    const score = Math.max(ocrConfidence['netQuantity.value'] || 0, aiConfidence['netQuantity'] || 0) - 20;
+    recordFieldMeta(
+      'netQuantity',
+      'manual',
+      score,
+      `${ocrQty.value} ${ocrQty.unit}`,
+      `${aiQty.value} ${aiQty.unit}`,
+      'netQuantity.value'
+    );
   } else if (ocrQty) {
     formData.netQuantity = ocrQty;
-    sourceMap['netQuantity'] = 'ocr';
-    confidence['netQuantity.value'] = ocrConfidence['netQuantity.value'] || 0;
+    const score = ocrConfidence['netQuantity.value'] || 0;
+    recordFieldMeta('netQuantity', 'ocr', score, `${ocrQty.value} ${ocrQty.unit}`, undefined, 'netQuantity.value');
   } else if (aiQty) {
     formData.netQuantity = {
       value: aiQty.value,
@@ -218,89 +310,101 @@ export function mergeExtractions(
       itemCount: null,
       soldByNumber: false,
     };
-    sourceMap['netQuantity'] = 'ai';
-    confidence['netQuantity.value'] = aiConfidence['netQuantity'] || 0;
+    const score = aiConfidence['netQuantity'] || 0;
+    recordFieldMeta('netQuantity', 'ai', score, undefined, `${aiQty.value} ${aiQty.unit}`);
   }
 
-  // Handle nested contact objects and supplementary fields
-  const contactFields = ['manufacturer', 'importer', 'consumerCare', 'supplementary'] as const;
-  for (const contactField of contactFields) {
-    const ocrContact = (ocrCandidate[contactField] as any) || {};
-    const aiContact = (aiMapped[contactField] as any) || {};
+  // 4. Handle nested contact objects (manufacturer, importer, consumerCare, supplementary)
+  const contactSections = [
+    { key: 'manufacturer', ocrPrefix: 'manufacturer.', aiPrefix: 'manufacturer' },
+    { key: 'importer', ocrPrefix: 'importer.', aiPrefix: 'importer' },
+    { key: 'consumerCare', ocrPrefix: 'consumerCare.', aiPrefix: 'consumerCare' },
+    { key: 'supplementary', ocrPrefix: 'supplementary.', aiPrefix: '' },
+  ] as const;
 
-    const mergedContact: any = {};
-    let hasOcr = false;
-    let hasAi = false;
+  for (const section of contactSections) {
+    const ocrObj = (ocrCandidate[section.key as keyof InspectionFormData] as any) || {};
+    const aiObj = (aiMapped[section.key as keyof InspectionFormData] as any) || {};
 
-    const allSubFields = Array.from(new Set([...Object.keys(ocrContact), ...Object.keys(aiContact)]));
+    const mergedObj: any = {};
+    let sectionHasOcr = false;
+    let sectionHasAi = false;
+    let hasDisagreement = false;
 
-    for (const subField of allSubFields) {
-      const ocrSubVal = ocrContact[subField] || '';
-      const aiSubVal = aiContact[subField] || '';
+    const subFields = Array.from(new Set([...Object.keys(ocrObj), ...Object.keys(aiObj)]));
 
-      if (stringsAgree(ocrSubVal, aiSubVal)) {
-        mergedContact[subField] = ocrSubVal || aiSubVal;
-      } else if (ocrSubVal && aiSubVal) {
-        mergedContact[subField] = ocrSubVal; // Default to OCR
-      } else if (ocrSubVal) {
-        mergedContact[subField] = ocrSubVal;
-      } else if (aiSubVal) {
-        mergedContact[subField] = aiSubVal;
+    for (const sub of subFields) {
+      const ocrSub = ocrObj[sub] || '';
+      const aiSub = aiObj[sub] || '';
+      const fieldKey = `${section.key}.${sub}`;
+
+      if (stringsAgree(ocrSub, aiSub)) {
+        mergedObj[sub] = ocrSub || aiSub;
+        sectionHasOcr = sectionHasOcr || Boolean(ocrSub);
+        sectionHasAi = sectionHasAi || Boolean(aiSub);
+        const score = Math.min((ocrConfidence[fieldKey] || 80) + 10, 100);
+        recordFieldMeta(fieldKey, 'ocr+ai', score, ocrSub, aiSub, fieldKey);
+      } else if (ocrSub && aiSub) {
+        // Disagreement on sub-field
+        hasDisagreement = true;
+        mergedObj[sub] = ocrSub;
+        sectionHasOcr = true;
+        sectionHasAi = true;
+        const score = 50;
+        recordFieldMeta(fieldKey, 'manual', score, ocrSub, aiSub, fieldKey);
+      } else if (ocrSub) {
+        mergedObj[sub] = ocrSub;
+        sectionHasOcr = true;
+        const score = ocrConfidence[fieldKey] || 75;
+        recordFieldMeta(fieldKey, 'ocr', score, ocrSub, undefined, fieldKey);
+      } else if (aiSub) {
+        mergedObj[sub] = aiSub;
+        sectionHasAi = true;
+        const score = 75;
+        recordFieldMeta(fieldKey, 'ai', score, undefined, aiSub, fieldKey);
       }
-
-      if (ocrSubVal) hasOcr = true;
-      if (aiSubVal) hasAi = true;
     }
 
-    if (Object.values(mergedContact).some(v => v)) {
-      formData[contactField] = mergedContact;
-      sourceMap[contactField] = hasOcr && hasAi ? 'ocr+ai' : hasOcr ? 'ocr' : 'ai';
+    if (Object.values(mergedObj).some(v => v)) {
+      (formData as any)[section.key] = mergedObj;
+      const sectionSource: ExtractionSource = hasDisagreement
+        ? 'manual'
+        : sectionHasOcr && sectionHasAi
+        ? 'ocr+ai'
+        : sectionHasOcr
+        ? 'ocr'
+        : 'ai';
+      sourceMap[section.key] = sectionSource;
     }
   }
 
-  // Handle nested Objects containing dates
-  const ocrBestBefore = ocrCandidate.bestBefore;
-  const aiBestBefore = aiMapped.bestBefore;
+  // 5. Handle Best Before Dates
+  const ocrBB = ocrCandidate.bestBefore;
+  const aiBB = aiMapped.bestBefore;
 
-  if (ocrBestBefore?.month && aiBestBefore?.month) {
-      const mergedBB: any = {applicable: true, date: ''};
-      let hasOcrBB = false;
-      let hasAiBB = false;
-
-      const bbFields = ['month', 'year'] as const;
-      for (const bbField of bbFields) {
-          const ocrVal = ocrBestBefore[bbField] || '';
-          const aiVal = aiBestBefore[bbField] || '';
-
-          if (ocrVal === aiVal && aiVal !== '') {
-             mergedBB[bbField] = aiVal;
-          } else if (ocrVal && aiVal) {
-             mergedBB[bbField] = ocrVal;
-          } else if (ocrVal) {
-             mergedBB[bbField] = ocrVal;
-          } else if (aiVal) {
-             mergedBB[bbField] = aiVal;
-          }
-           if (ocrVal) hasOcrBB = true;
-           if (aiVal) hasAiBB = true;
-      }
-
-      formData.bestBefore = mergedBB;
-      const srce = hasOcrBB && hasAiBB ? 'ocr+ai' : hasOcrBB ? 'ocr' : 'ai';
-      sourceMap['bestBefore'] = srce as any;
-      if (mergedBB.month) confidence['bestBefore.month'] = srce === 'ocr+ai' ? 95 : 85;
-      if (mergedBB.year) confidence['bestBefore.year'] = srce === 'ocr+ai' ? 95 : 85;
-
-  } else if (ocrBestBefore) {
-      formData.bestBefore = ocrBestBefore;
-      sourceMap['bestBefore'] = 'ocr';
-      if (ocrBestBefore.month) confidence['bestBefore.month'] = ocrConfidence['bestBefore.month'] || 80;
-      if (ocrBestBefore.year) confidence['bestBefore.year'] = ocrConfidence['bestBefore.year'] || 80;
-  } else if (aiBestBefore && (aiBestBefore.month || aiBestBefore.year)) {
-      formData.bestBefore = aiBestBefore;
-      sourceMap['bestBefore'] = 'ai';
-      if (aiBestBefore.month) confidence['bestBefore.month'] = aiConfidence['bestBeforeMonth'] || 80;
-      if (aiBestBefore.year) confidence['bestBefore.year'] = aiConfidence['bestBeforeYear'] || 80;
+  if (ocrBB?.month && aiBB?.month) {
+    const agree = datesAgree(ocrBB.month, ocrBB.year, aiBB.month, aiBB.year);
+    formData.bestBefore = {
+      applicable: true,
+      date: ocrBB.date || aiBB.date || '',
+      month: ocrBB.month || aiBB.month || '',
+      year: ocrBB.year || aiBB.year || '',
+    };
+    const src: ExtractionSource = agree ? 'ocr+ai' : 'manual';
+    const score = agree ? 95 : 55;
+    sourceMap['bestBefore'] = src;
+    recordFieldMeta('bestBefore.month', src, score, ocrBB.month, aiBB.month, 'bestBefore.month');
+    recordFieldMeta('bestBefore.year', src, score, ocrBB.year, aiBB.year, 'bestBefore.year');
+  } else if (ocrBB && (ocrBB.month || ocrBB.year)) {
+    formData.bestBefore = ocrBB;
+    sourceMap['bestBefore'] = 'ocr';
+    if (ocrBB.month) recordFieldMeta('bestBefore.month', 'ocr', ocrConfidence['bestBefore.month'] || 80, ocrBB.month, undefined, 'bestBefore.month');
+    if (ocrBB.year) recordFieldMeta('bestBefore.year', 'ocr', ocrConfidence['bestBefore.year'] || 80, ocrBB.year, undefined, 'bestBefore.year');
+  } else if (aiBB && (aiBB.month || aiBB.year)) {
+    formData.bestBefore = aiBB;
+    sourceMap['bestBefore'] = 'ai';
+    if (aiBB.month) recordFieldMeta('bestBefore.month', 'ai', aiConfidence['bestBeforeMonth'] || 80, undefined, aiBB.month);
+    if (aiBB.year) recordFieldMeta('bestBefore.year', 'ai', aiConfidence['bestBeforeYear'] || 80, undefined, aiBB.year);
   }
 
   return {

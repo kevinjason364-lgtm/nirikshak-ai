@@ -34,7 +34,7 @@ export interface ParsedOcrResult {
 }
 
 interface ExtractionCandidate {
-  value: string | number;
+  value: string | number | boolean;
   confidence: number;
   source: string;
   sourceSide?: 'front' | 'back' | 'side-other' | 'unknown';
@@ -402,13 +402,14 @@ function extractDates(text: string, tesseractConfidence: number): {
  * Extract phone with validation
  */
 function extractPhone(text: string, tesseractConfidence: number): ExtractionCandidate | null {
-  const phoneRegex = /(?:TOLL\s*FREE|HELPLINE|CALL|TEL|PHONE|CARE|CONTACT|CUSTOMER\s*CARE|CONSUMER\s*CARE|PH\.?)\.?\s*[:.\-]?\s*([0-9\-\s\(\)]{8,18})/i;
+  const phoneRegex = /(?:(?:TOLL\s*FREE|HELPLINE|CALL|TEL|PHONE|CARE|CONTACT|CUSTOMER\s*CARE|CONSUMER\s*CARE|PH\.?)\.?(?:\s*(?:NO\.?|NUMBER|US\s*AT))?\s*[:.\-]?\s*([0-9\-\s\(\)]{8,18})|\b(1800[-\s]?[0-9]{3}[-\s]?[0-9]{4})\b)/i;
   const match = text.match(phoneRegex);
 
-  if (match && match[1] && match.index !== undefined && validators.phone(match[1])) {
+  const phoneVal = match ? (match[1] || match[2]) : null;
+  if (match && phoneVal && match.index !== undefined && validators.phone(phoneVal)) {
     const confidence = Math.round(Math.min(85, tesseractConfidence * 0.9));
     const sourceSide = findSourceSide(text, match.index);
-    return { value: match[1].trim(), confidence, source: match[0], sourceSide };
+    return { value: phoneVal.trim(), confidence, source: match[0], sourceSide };
   }
 
   return null;

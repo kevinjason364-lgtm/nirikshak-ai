@@ -1,4 +1,5 @@
 import { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode } from 'react';
+import type { FieldExtractionMeta, QualitativeConfidence } from '@/lib/vision/types';
 
 interface FormFieldProps {
   label: string;
@@ -8,63 +9,77 @@ interface FormFieldProps {
   children: ReactNode;
   confidence?: number | null;
   source?: 'ocr' | 'ai' | 'ocr+ai' | 'manual' | string;
+  metadata?: FieldExtractionMeta;
 }
 
-function SourceBadge({ source, confidence }: { source?: string; confidence?: number | null }) {
-  if (!source && (confidence === null || confidence === undefined)) return null;
+function SourceBadge({ source, confidence, metadata }: { source?: string; confidence?: number | null; metadata?: FieldExtractionMeta }) {
+  if (!source && (confidence === null || confidence === undefined) && !metadata) return null;
+
+  const resolvedSource = metadata?.source || source;
+  const rawScore = metadata?.confidence ?? confidence;
+
+  // Derive qualitative confidence if not explicitly provided
+  let qualConf: QualitativeConfidence | undefined = metadata?.qualitativeConfidence;
+
+  if (!qualConf && rawScore !== null && rawScore !== undefined) {
+    if (resolvedSource === 'manual') qualConf = 'Needs Review';
+    else if (resolvedSource === 'ocr+ai') qualConf = 'High';
+    else if (rawScore >= 80) qualConf = 'High';
+    else if (rawScore >= 60) qualConf = 'Medium';
+    else qualConf = 'Low';
+  }
 
   let bgColor = 'bg-gray-100 text-gray-600 border-gray-200';
   let label = 'Not detected';
-  const confText = confidence ? ` (${Math.round(confidence)}%)` : '';
 
-  if (source === 'manual') {
-    bgColor = 'bg-amber-50 text-amber-700 border-amber-200';
-    label = `Needs Review${confText}`;
-  } else if (source === 'ocr+ai') {
-    bgColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    label = `OCR + AI${confText}`;
-  } else if (source === 'ai') {
-    bgColor = 'bg-purple-50 text-purple-700 border-purple-200';
-    label = `AI detected${confText}`;
-  } else if (source === 'ocr') {
-    if (confidence && confidence >= 80) {
-      bgColor = 'bg-teal-50 text-teal-700 border-teal-200';
-      label = `OCR High${confText}`;
-    } else if (confidence && confidence >= 60) {
-      bgColor = 'bg-amber-50 text-amber-700 border-amber-200';
-      label = `OCR Medium${confText}`;
+  if (resolvedSource === 'manual' || qualConf === 'Needs Review') {
+    bgColor = 'bg-amber-100 text-amber-800 border-amber-300';
+    label = 'Needs Review';
+  } else if (resolvedSource === 'ocr+ai') {
+    bgColor = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+    label = 'OCR + AI (High)';
+  } else if (resolvedSource === 'ai') {
+    if (qualConf === 'High') {
+      bgColor = 'bg-purple-100 text-purple-800 border-purple-300';
+      label = 'AI (High)';
+    } else if (qualConf === 'Medium') {
+      bgColor = 'bg-purple-50 text-purple-700 border-purple-200';
+      label = 'AI (Medium)';
     } else {
-      bgColor = 'bg-teal-50 text-teal-700 border-teal-200';
-      label = `OCR detected${confText}`;
+      bgColor = 'bg-gray-100 text-gray-600 border-gray-200';
+      label = 'AI (Low)';
     }
-  } else if (confidence !== null && confidence !== undefined) {
-    // Fallback when only confidence is provided
-    if (confidence >= 80) {
-      bgColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-      label = `OCR: High (${Math.round(confidence)}%)`;
-    } else if (confidence >= 60) {
-      bgColor = 'bg-amber-50 text-amber-700 border-amber-200';
-      label = `OCR: Medium (${Math.round(confidence)}%)`;
-    } else if (confidence > 0) {
+  } else if (resolvedSource === 'ocr' || rawScore !== null) {
+    if (qualConf === 'High') {
+      bgColor = 'bg-teal-100 text-teal-800 border-teal-300';
+      label = 'OCR (High)';
+    } else if (qualConf === 'Medium') {
+      bgColor = 'bg-teal-50 text-teal-700 border-teal-200';
+      label = 'OCR (Medium)';
+    } else {
       bgColor = 'bg-red-50 text-red-700 border-red-200';
-      label = `OCR: Low (${Math.round(confidence)}%)`;
+      label = 'OCR (Low)';
     }
   }
 
+  const sideLabel = metadata?.sourceSide && metadata.sourceSide !== 'unknown'
+    ? ` • ${metadata.sourceSide.toUpperCase()}`
+    : '';
+
   return (
     <span className={`ml-2 px-1.5 py-0.5 text-[10px] font-medium rounded border ${bgColor}`}>
-      {label}
+      {label}{sideLabel}
     </span>
   );
 }
 
-export function FormField({ label, required, error, hint, children, confidence, source }: FormFieldProps) {
+export function FormField({ label, required, error, hint, children, confidence, source, metadata }: FormFieldProps) {
   return (
     <div className="space-y-1">
       <label className="block text-sm font-medium text-gray-700">
         {label}
         {required && <span className="text-red-500 ml-0.5">*</span>}
-        <SourceBadge source={source} confidence={confidence} />
+        <SourceBadge source={source} confidence={confidence} metadata={metadata} />
       </label>
       {children}
       {hint && !error && <p className="text-xs text-gray-500">{hint}</p>}

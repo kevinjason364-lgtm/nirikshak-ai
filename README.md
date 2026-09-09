@@ -287,6 +287,31 @@ Each entry should include:
     - **Runtime Summary:** 7 PASS, 0 FAIL, 1 NOT PERFORMED (0 browser console errors, 7 total POST calls).
 - **Known limitations:**
   - Gemini API free tier remains subject to standard Google quotas (15 RPM / 1M TPM / 1,500 RPD); graceful local OCR fallback is automatically triggered when quotas are reached.
+
+---
+
+### 2026-09-09 — Phase 2: Extraction Quality & Explainability
+- **Status:** Implemented & Verified
+- **What changed:**
+  1. **Strict Field Validation (`src/lib/ocr-parser.ts`):** Implemented strict validators for MRP, Net Qty, Dates, Phone, Email, FSSAI, Manufacturer, and Product Name, effectively rejecting noise and corrupt OCR output before extraction assignment.
+  2. **TypeScript Stability Fix:** Fixed TS2352 casting error in `ocr-parser.ts` by updating `ExtractionCandidate` interface to support boolean type for tax inclusion.
+  3. **Multi-Side Spatial Provenance (`src/lib/hybrid-merger.ts`):** Enabled tracking of `sourceSide` (front, back, etc.) for extraction candidates.
+  4. **Qualitative Confidence Tiers (`src/components/ui/FormField.tsx`):** Upgraded UI to display intuitive qualitative badges (`High`, `Medium`, `Low`, `Needs Review`) instead of misleading numeric percentages.
+  5. **Explainability & Auditing:** Added verbatim evidence snippets to `FieldExtractionMeta` and exposed them in the development-only diagnostics panel.
+- **Why:** Improve extraction quality, ensure transparency and explainability, and implement reliable multi-side evidence merging for Legal Metrology compliance inspection.
+- **Files affected:**
+  - `src/lib/ocr-parser.ts`
+  - `src/lib/hybrid-merger.ts`
+  - `src/components/ui/FormField.tsx`
+  - `src/components/inspection/InspectionForm.tsx`
+  - `tests/phase2-validation.test.ts`
+  - `tests/phase2-multiside.test.ts`
+  - `tests/phase2-disagreement.test.ts`
+- **Verification performed:**
+  - `npm run typecheck`, `npm run lint`, `npm run build` — **PASSED**
+  - Phase 2 test suite (validation, multi-side, disagreement) — **PASSED** (6/6)
+  - Existing regression test suite (ocr-parser, hybrid-merger, e2e-real) — **PASSED**
+
   - Smeared or optically ambiguous packaging text will continue to require manual inspector confirmation by design.
 - **Next step:** Await review of Phase 1 changes before creating git checkpoint and proceeding to Phase 2.
 

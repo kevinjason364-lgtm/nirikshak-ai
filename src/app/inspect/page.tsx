@@ -25,6 +25,7 @@ export default function InspectPage() {
   const [confidence, setConfidence] = useState<Record<string, number>>({});
   const [extractionMethod, setExtractionMethod] = useState<ExtractionMode>('manual');
   const [sourceMap, setSourceMap] = useState<Record<string, string>>({});
+  const [metadata, setMetadata] = useState<Record<string, any>>({});
   const [report, setReport] = useState<InspectionReport | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const isProcessingRef = useRef(false);
@@ -111,6 +112,7 @@ export default function InspectPage() {
         setFormData(newFormData);
         setConfidence(result.confidence || {});
         setSourceMap(result.sourceMap || {});
+        setMetadata(result.metadata || {});
 
         const status = result.extractionStatus;
         const fieldCount = result.fieldCount || 0;
@@ -170,6 +172,7 @@ export default function InspectPage() {
       setFormData(getEmptyFormData());
       setConfidence({});
       setSourceMap({});
+      setMetadata({});
       setExtractionDiagnostics(null);
       setExtractionMethod('manual');
       setExtractionStatusMessage('');
@@ -210,6 +213,7 @@ export default function InspectPage() {
     setReport(null);
     setConfidence({});
     setSourceMap({});
+    setMetadata({});
     setExtractionDiagnostics(null);
     setExtractionMethod('manual');
     setExtractionStatusMessage('');
@@ -321,6 +325,7 @@ export default function InspectPage() {
             statusMessage={extractionStatusMessage}
             extractionDiagnostics={extractionDiagnostics}
             sourceMap={sourceMap}
+            metadata={metadata}
           />
 
           <div className="flex flex-col sm:flex-row gap-3 justify-between sticky bottom-4 bg-gray-50 py-3 px-4 rounded-lg border shadow-lg">

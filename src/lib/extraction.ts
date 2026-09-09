@@ -750,7 +750,8 @@ export const hybridExtraction: ExtractionAdapter = {
       ocrResult.formData,
       ocrResult.confidence,
       visionResult.candidate,
-      visionResult.confidence
+      visionResult.confidence,
+      ocrResult.fieldDetails
     );
 
     console.log('[Hybrid Extraction] Merge complete, fields:', Object.keys(merged.formData).filter(k => merged.formData[k as keyof typeof merged.formData]));
