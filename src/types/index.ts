@@ -138,7 +138,7 @@ export interface InspectionFormData {
 
 export interface CapturedImage {
   id: string;
-  label: 'front' | 'back' | 'side-other';
+  label: string; // Dynamic label for the surface captured (e.g., 'front', 'back', 'left-side', etc.)
   dataUrl: string; // thumbnail for display
   blobKey: string; // IndexedDB key for full image
   timestamp: number;

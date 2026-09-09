@@ -17,7 +17,7 @@
  *   export const visionLmExtraction: ExtractionAdapter = {
  *     name: 'vision-lm',
  *     description: 'Vision-language model extraction for low-quality/blurred images',
- *     async extract(images: CapturedImage[]): Promise<ExtractionResult> {
+ *     async extract(images: CapturedImage[], onProgress?: (msg: string) => void): Promise<ExtractionResult> {
  *       // 1. Send images to vision-LM API (e.g., GPT-4 Vision, Claude 3, etc.)
  *       // 2. Request structured JSON output matching InspectionFormData schema
  *       // 3. Parse and validate the response
@@ -434,8 +434,8 @@ export const ocrExtraction: ExtractionAdapter = {
     }> = [];
 
     try {
-      for (const img of images) {
-        onProgress?.(`Analyzing ${img.label.toUpperCase()} label...`);
+      for (let i = 0; i < images.length; i++) { const img = images[i];
+        onProgress?.(`Analyzing image ${i + 1} of ${images.length} (${img.label.toUpperCase()})...`);
         console.group(`[OCR Extraction] Processing: ${img.label.toUpperCase()}`);
         console.log('[OCR Extraction] Image ID:', img.id);
         console.log('[OCR Extraction] Timestamp:', new Date(img.timestamp).toISOString());
@@ -606,7 +606,7 @@ async function getImageInfo(dataUrl: string): Promise<{ width: number; height: n
 export const hybridExtraction: ExtractionAdapter = {
   name: 'hybrid',
   description: 'Hybrid extraction using Vision AI + Tesseract OCR with conservative merging',
-  async extract(images: CapturedImage[]): Promise<ExtractionResult> {
+  async extract(images: CapturedImage[], onProgress?: (statusMessage: string) => void): Promise<ExtractionResult> {
     console.group('[Hybrid Extraction] ========== HYBRID PIPELINE START ==========');
     console.log('[Hybrid Extraction] Images to process:', images.length);
 
@@ -631,11 +631,12 @@ export const hybridExtraction: ExtractionAdapter = {
       // OCR extraction
       (async () => {
         console.log('[Hybrid Extraction] Starting Tesseract OCR...');
-        return await ocrExtraction.extract(images);
+        return await ocrExtraction.extract(images, onProgress);
       })(),
       // Vision AI extraction
       (async () => {
         console.log('[Hybrid Extraction] Starting Vision AI...');
+        onProgress?.('Extracting text with Vision AI...');
         const response = await fetch('/api/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -767,6 +768,7 @@ export const hybridExtraction: ExtractionAdapter = {
 
     // Hybrid merge: combine OCR and Vision AI
     console.log('[Hybrid Extraction] Merging OCR and Vision AI results...');
+    onProgress?.('Merging OCR and Vision AI results...');
     const { mergeExtractions } = await import('./hybrid-merger');
     const merged = mergeExtractions(
       ocrResult.formData,

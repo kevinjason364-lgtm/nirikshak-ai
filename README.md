@@ -239,6 +239,37 @@ Each entry should include:
 
 ---
 
+### 2026-09-09 — Phase 2 & Phase 3: Extraction Quality, Multi-Side Support, UX & Documentation
+- **Status:** Implemented & Verified
+- **What changed:**
+  1. **Dynamic 1–10 Image Capture (`src/components/inspection/CameraCapture.tsx` & core types):** Lifted restrictive 3-image limits allowing dynamic upload/capture of up to 10 surfaces with customizable spatial tags (`front`, `back`, `top`, `bottom`, `left-side`, `right-side`, `mrp-date-panel`, etc.).
+  2. **Multi-Side Spatial Provenance (`src/lib/hybrid-merger.ts`):** Enabled tracking of exactly which spatial surface (`sourceSide`) provided the evidence for each extracted field across the hybrid merger.
+  3. **Data-Driven Extractors (`src/lib/ocr-parser.ts`):** Stripped out simulated example fallbacks. Ensured all pipeline extractors (MRP, Dates, Contact, etc.) operate exclusively on raw image text evidence.
+  4. **Strict Field Validation (`src/lib/ocr-parser.ts`):** Added aggressive pre-extraction validators (rejecting arbitrary numbers as MRPs/Phones, verifying date formats, checking FSSAI patterns) to prevent OCR hallucination from polluting the form state.
+  5. **Qualitative Confidence Tiers (`src/lib/hybrid-merger.ts`, `src/components/ui/FormField.tsx`):** Transformed arbitrary confidence scores into an explainable four-tier system (`High`, `Medium`, `Low`, `Needs Review`) displayed clearly in the UI. 
+  6. **Image Preprocessing Polish (`src/lib/ocr-preprocessing.ts`):** Optimized client-side canvas preprocessing with percentile contrast clipping and gamma adjustments for improved OCR accuracy on mobile photos.
+  7. **Tesseract Worker Reuse (`src/lib/extraction.ts`):** Implemented a shared Tesseract worker across multiple images and added granular progress callbacks (`Analyzing Front...`, `Merging...`) surfacing status updates to the UI.
+  8. **Resilient Vision AI (`src/lib/vision/gemini.ts`):** Added 25-second AbortSignal timeouts to prevent hanging network requests during API delays.
+- **Why:** To improve extraction quality, accuracy, explainability, multi-side support, and UX polish while keeping the Legal Metrology rule engine completely deterministic and untouched.
+- **Files affected:**
+  - `src/lib/ocr-parser.ts`
+  - `src/lib/hybrid-merger.ts`
+  - `src/lib/ocr-preprocessing.ts`
+  - `src/lib/extraction.ts`
+  - `src/components/inspection/CameraCapture.tsx`
+  - `src/components/inspection/InspectionForm.tsx`
+  - `src/components/ui/FormField.tsx`
+  - `src/app/api/extract/route.ts`
+  - `src/app/inspect/page.tsx`
+  - `src/types/index.ts`
+- **Verification performed:**
+  - `npm run typecheck`, `npm run lint`, `npm run build` — **PASSED**
+  - All unit & integration tests (`phase2-validation`, `phase2-multiside`, `phase2-disagreement`, `e2e-real-images` etc.) — **PASSED** (100% pass rate)
+  - Manually confirmed extraction stability and UX progress callbacks via dev logs and runtime simulation tests.
+- **Known limitations:** Smeared or optically ambiguous packaging text will continue to require manual inspector confirmation by design. Model rate limits still apply for the free tier.
+
+---
+
 ### 2026-09-04 — Phase 1 Stability & API Reliability
 
 - **Status:** Implemented & Verified

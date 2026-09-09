@@ -7,28 +7,37 @@ import { assessImageQuality } from '@/lib/image-quality';
 import type { CapturedImage, ImageQualityResult } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
-type ImageSlot = 'front' | 'back' | 'side-other';
+const MAX_IMAGES = 10;
+
+export const SURFACE_OPTIONS: { id: string; label: string }[] = [
+  { id: 'front', label: 'Front Panel' },
+  { id: 'back', label: 'Back Panel' },
+  { id: 'left-side', label: 'Left Side' },
+  { id: 'right-side', label: 'Right Side' },
+  { id: 'top', label: 'Top Panel' },
+  { id: 'bottom', label: 'Bottom / Base' },
+  { id: 'mrp-date-panel', label: 'MRP & Date Panel' },
+  { id: 'side-other', label: 'Side / Other' },
+];
 
 interface CameraCaptureProps {
   images: CapturedImage[];
   onImagesChange: (images: CapturedImage[]) => void;
 }
 
-const slotLabels: Record<ImageSlot, string> = {
-  front: 'Front Label',
-  back: 'Back Label',
-  'side-other': 'Side / Other',
-};
-
 export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
-  const [activeSlot, setActiveSlot] = useState<ImageSlot | null>(null);
-  const activeSlotRef = useRef<ImageSlot | null>(null);
+  const [activeTargetId, setActiveTargetId] = useState<string | null>(null);
+  const [pendingLabel, setPendingLabel] = useState<string>('front');
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [qualityResults, setQualityResults] = useState<Record<string, ImageQualityResult>>({});
+  const [isUploading, setIsUploading] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const multiFileInputRef = useRef<HTMLInputElement>(null);
+  const singleFileInputRef = useRef<HTMLInputElement>(null);
+  const replaceTargetIdRef = useRef<string | null>(null);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -44,8 +53,28 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
     };
   }, [stopCamera]);
 
-  const startCamera = async (slot: ImageSlot) => {
-    setActiveSlot(slot);
+  // Initial quality assessment for loaded images if needed
+  useEffect(() => {
+    images.forEach(async (img) => {
+      if (!qualityResults[img.id] && img.dataUrl) {
+        const quality = await assessImageQuality(img.dataUrl);
+        setQualityResults((prev) => ({ ...prev, [img.id]: quality }));
+      }
+    });
+  }, [images, qualityResults]);
+
+  const startCamera = async (targetId: string | null = null, defaultLabel?: string) => {
+    if (images.length >= MAX_IMAGES && !targetId) return;
+
+    setActiveTargetId(targetId);
+    if (defaultLabel) {
+      setPendingLabel(defaultLabel);
+    } else if (!targetId) {
+      // Suggest next logical surface label
+      const usedLabels = new Set(images.map((img) => img.label.toLowerCase()));
+      const nextOption = SURFACE_OPTIONS.find((opt) => !usedLabels.has(opt.id));
+      setPendingLabel(nextOption ? nextOption.id : 'side-other');
+    }
     setCameraError(null);
 
     try {
@@ -66,7 +95,7 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
   };
 
   const capturePhoto = async () => {
-    if (!videoRef.current || !activeSlot) return;
+    if (!videoRef.current) return;
 
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
@@ -78,26 +107,26 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
     stopCamera();
-    await addImage(activeSlot, dataUrl);
-    setActiveSlot(null);
+
+    if (activeTargetId) {
+      // Replacing existing image
+      await updateImageData(activeTargetId, dataUrl);
+    } else {
+      // Adding new image
+      await addNewImage(pendingLabel, dataUrl);
+    }
+    setActiveTargetId(null);
   };
 
-  const handleFileUpload = async (slot: ImageSlot, file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
-      await addImage(slot, dataUrl);
-    };
-    reader.readAsDataURL(file);
-  };
+  const addNewImage = async (label: string, dataUrl: string) => {
+    if (images.length >= MAX_IMAGES) return;
 
-  const addImage = async (slot: ImageSlot, dataUrl: string) => {
     const quality = await assessImageQuality(dataUrl);
     const id = uuidv4();
 
     const newImage: CapturedImage = {
       id,
-      label: slot,
+      label: label || 'side-other',
       dataUrl,
       blobKey: `img-${id}`,
       timestamp: Date.now(),
@@ -106,28 +135,119 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
     };
 
     setQualityResults((prev) => ({ ...prev, [id]: quality }));
-
-    // Replace existing image for this slot or add new
-    const filtered = images.filter((img) => img.label !== slot);
-    onImagesChange([...filtered, newImage]);
+    onImagesChange([...images, newImage]);
   };
 
-  const removeImage = (slot: ImageSlot) => {
-    onImagesChange(images.filter((img) => img.label !== slot));
+  const updateImageData = async (id: string, dataUrl: string) => {
+    const quality = await assessImageQuality(dataUrl);
+    setQualityResults((prev) => ({ ...prev, [id]: quality }));
+
+    const updated = images.map((img) => {
+      if (img.id === id) {
+        return {
+          ...img,
+          dataUrl,
+          timestamp: Date.now(),
+          qualityScore: quality.score,
+          qualityWarnings: quality.warnings,
+        };
+      }
+      return img;
+    });
+
+    onImagesChange(updated);
   };
 
-  const getImageForSlot = (slot: ImageSlot) => images.find((img) => img.label === slot);
+  const updateImageLabel = (id: string, newLabel: string) => {
+    const updated = images.map((img) => (img.id === id ? { ...img, label: newLabel } : img));
+    onImagesChange(updated);
+  };
+
+  const removeImage = (id: string) => {
+    onImagesChange(images.filter((img) => img.id !== id));
+  };
+
+  const handleSingleFileUpload = (id: string) => {
+    replaceTargetIdRef.current = id;
+    if (singleFileInputRef.current) {
+      singleFileInputRef.current.value = '';
+      singleFileInputRef.current.click();
+    }
+  };
+
+  const handleSingleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const targetId = replaceTargetIdRef.current;
+    if (file && targetId) {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target?.result as string;
+        if (dataUrl) {
+          await updateImageData(targetId, dataUrl);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = '';
+  };
+
+  const handleMultiFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    const availableSlots = MAX_IMAGES - images.length;
+    const filesToProcess = Array.from(files).slice(0, availableSlots);
+
+    const existingLabels = new Set(images.map((img) => img.label.toLowerCase()));
+    const newCapturedList: CapturedImage[] = [];
+
+    for (let i = 0; i < filesToProcess.length; i++) {
+      const file = filesToProcess[i];
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+
+      if (!dataUrl) continue;
+
+      // Assign an unused surface label if possible
+      const availableOpt = SURFACE_OPTIONS.find((opt) => !existingLabels.has(opt.id));
+      const chosenLabel = availableOpt ? availableOpt.id : `surface-${images.length + i + 1}`;
+      existingLabels.add(chosenLabel);
+
+      const quality = await assessImageQuality(dataUrl);
+      const id = uuidv4();
+
+      newCapturedList.push({
+        id,
+        label: chosenLabel,
+        dataUrl,
+        blobKey: `img-${id}`,
+        timestamp: Date.now(),
+        qualityScore: quality.score,
+        qualityWarnings: quality.warnings,
+      });
+
+      setQualityResults((prev) => ({ ...prev, [id]: quality }));
+    }
+
+    onImagesChange([...images, ...newCapturedList]);
+    setIsUploading(false);
+    e.target.value = '';
+  };
 
   const qualityStatusBg = (status?: string) => {
     switch (status) {
       case 'good':
-        return 'bg-emerald-100 text-emerald-700';
+        return 'bg-emerald-100 text-emerald-700 border-emerald-200';
       case 'needs-review':
-        return 'bg-amber-100 text-amber-700';
+        return 'bg-amber-100 text-amber-700 border-amber-200';
       case 'retake-recommended':
-        return 'bg-red-100 text-red-700';
+        return 'bg-red-100 text-red-700 border-red-200';
       default:
-        return 'bg-gray-100 text-gray-600';
+        return 'bg-gray-100 text-gray-600 border-gray-200';
     }
   };
 
@@ -140,156 +260,310 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
       case 'retake-recommended':
         return '✗ Retake Recommended';
       default:
-        return 'Not Assessed';
+        return 'Assessing Quality...';
     }
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-navy-900">Label Images</h3>
-        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-          Images used as visual evidence only — no automated interpretation
-        </span>
+      {/* Header and Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-navy-900">Label Surface Images</h3>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-navy-100 text-navy-800">
+              {images.length} / {MAX_IMAGES}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Capture or upload 1 to 10 package surfaces (Front, Back, Side panels, MRP/Date seals).
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {images.length < MAX_IMAGES && (
+            <>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => startCamera(null)}
+                disabled={cameraActive || isUploading}
+                className="flex items-center gap-1.5"
+              >
+                📸 Add via Camera
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (multiFileInputRef.current) {
+                    multiFileInputRef.current.value = '';
+                    multiFileInputRef.current.click();
+                  }
+                }}
+                disabled={cameraActive || isUploading}
+                className="flex items-center gap-1.5"
+              >
+                📁 Upload Images
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Camera view */}
+      {/* Camera Live View Modal / Panel */}
       {cameraActive && (
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden border-2 border-navy-500 shadow-lg">
           <div className="relative bg-black rounded-lg overflow-hidden">
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className="w-full max-h-80 object-contain"
+              className="w-full max-h-80 sm:max-h-96 object-contain"
             />
-            <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-center gap-4">
-              <Button variant="secondary" size="lg" onClick={capturePhoto}>
-                📸 Capture
-              </Button>
-              <Button
-                variant="outline"
-                size="md"
-                onClick={() => {
-                  stopCamera();
-                  setActiveSlot(null);
-                }}
-                className="text-white border-white hover:bg-white/10"
-              >
-                Cancel
-              </Button>
+            <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col items-center gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-white/90 font-medium">Surface Tag:</span>
+                <select
+                  value={pendingLabel}
+                  onChange={(e) => setPendingLabel(e.target.value)}
+                  className="bg-navy-900 text-white text-xs rounded px-2 py-1 border border-white/30"
+                >
+                  {SURFACE_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <Button variant="secondary" size="lg" onClick={capturePhoto} className="shadow-md">
+                  📸 Capture Frame
+                </Button>
+                <Button
+                  variant="outline"
+                  size="md"
+                  onClick={() => {
+                    stopCamera();
+                    setActiveTargetId(null);
+                  }}
+                  className="text-white border-white hover:bg-white/10"
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           </div>
           <p className="text-xs text-center text-gray-500 mt-2">
-            Capturing: {activeSlot ? slotLabels[activeSlot] : ''}
+            Capturing: {SURFACE_OPTIONS.find((s) => s.id === pendingLabel)?.label || pendingLabel}
           </p>
         </Card>
       )}
 
       {/* Camera error */}
       {cameraError && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-          {cameraError}
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex items-center justify-between">
+          <span>{cameraError}</span>
+          <Button size="sm" variant="ghost" onClick={() => setCameraError(null)}>
+            Dismiss
+          </Button>
         </div>
       )}
 
-      {/* Image slots */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {(['front', 'back', 'side-other'] as ImageSlot[]).map((slot) => {
-          const img = getImageForSlot(slot);
-          const quality = img ? qualityResults[img.id] : undefined;
+      {/* Image Cards Grid */}
+      {images.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {images.map((img, idx) => {
+            const quality = qualityResults[img.id];
 
-          return (
-            <Card key={slot} padding="sm" className="flex flex-col">
-              <p className="text-sm font-medium text-gray-700 mb-2">{slotLabels[slot]}</p>
+            return (
+              <Card key={img.id} padding="sm" className="flex flex-col relative group border hover:border-navy-300 transition-all">
+                {/* Surface Tag & Index Selector */}
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xs font-semibold text-navy-800 bg-gray-100 px-1.5 py-0.5 rounded">
+                    #{idx + 1}
+                  </span>
+                  <select
+                    value={img.label}
+                    onChange={(e) => updateImageLabel(img.id, e.target.value)}
+                    className="text-xs font-medium text-navy-900 bg-white border border-gray-300 rounded px-2 py-1 flex-1 focus:ring-1 focus:ring-navy-500"
+                  >
+                    {SURFACE_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                    {!SURFACE_OPTIONS.some((opt) => opt.id === img.label) && (
+                      <option value={img.label}>{img.label}</option>
+                    )}
+                  </select>
+                </div>
 
-              {img ? (
-                <div className="space-y-2">
-                  <div className="relative aspect-[4/3] rounded-lg overflow-hidden bg-gray-100">
-                    <img
-                      src={img.dataUrl}
-                      alt={`${slotLabels[slot]} capture`}
-                      className="w-full h-full object-cover"
-                    />
+                {/* Thumbnail */}
+                <div className="relative aspect-[4/3] rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
+                  <img
+                    src={img.dataUrl}
+                    alt={`${img.label} capture`}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute top-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
+                    {img.label.toUpperCase()}
                   </div>
+                </div>
 
-                  {/* Quality indicator */}
-                  <div className={`text-xs px-2 py-1 rounded text-center ${qualityStatusBg(quality?.status)}`}>
+                {/* Quality indicator */}
+                <div className="mt-2 space-y-1">
+                  <div
+                    className={`text-[11px] px-2 py-0.5 rounded border text-center font-medium ${qualityStatusBg(
+                      quality?.status
+                    )}`}
+                  >
                     {qualityStatusLabel(quality?.status)}
+                    {quality?.score !== undefined ? ` (${quality.score}%)` : ''}
                   </div>
 
                   {quality?.warnings && quality.warnings.length > 0 && (
-                    <ul className="text-xs text-amber-700 space-y-0.5">
+                    <ul className="text-[10px] text-amber-700 space-y-0.5 bg-amber-50/60 p-1.5 rounded border border-amber-150">
                       {quality.warnings.map((w, i) => (
                         <li key={i}>⚠ {w}</li>
                       ))}
                     </ul>
                   )}
+                </div>
 
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      fullWidth
-                      onClick={() => startCamera(slot)}
-                    >
-                      Retake
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => removeImage(slot)}
-                      className="text-red-600 hover:bg-red-50"
-                    >
-                      Remove
-                    </Button>
-                  </div>
+                {/* Actions */}
+                <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-gray-100">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 text-xs py-1"
+                    onClick={() => startCamera(img.id, img.label)}
+                    title="Retake photo using camera"
+                  >
+                    📷 Retake
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 text-xs py-1"
+                    onClick={() => handleSingleFileUpload(img.id)}
+                    title="Replace with an uploaded file"
+                  >
+                    📁 Replace
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => removeImage(img.id)}
+                    className="text-red-600 hover:bg-red-50 px-2 text-xs py-1"
+                    title="Remove this image"
+                  >
+                    ✕
+                  </Button>
                 </div>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3 py-6 border-2 border-dashed border-gray-200 rounded-lg">
-                  <div className="text-3xl text-gray-300">📷</div>
-                  <div className="flex flex-col gap-2 w-full px-3">
-                    <Button size="sm" variant="primary" fullWidth onClick={() => startCamera(slot)}>
-                      Camera
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      fullWidth
-                      onClick={() => {
-                        setActiveSlot(slot);
-                        activeSlotRef.current = slot;
-                        if (fileInputRef.current) {
-                          fileInputRef.current.value = '';
-                          fileInputRef.current.click();
-                        }
-                      }}
-                    >
-                      Upload
-                    </Button>
-                  </div>
-                </div>
-              )}
+              </Card>
+            );
+          })}
+
+          {/* Add more placeholder card if count < MAX_IMAGES */}
+          {images.length < MAX_IMAGES && (
+            <Card
+              padding="sm"
+              className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50/50 hover:bg-gray-50 transition-colors"
+            >
+              <div className="text-3xl text-gray-400">➕</div>
+              <p className="text-xs font-medium text-gray-600 text-center">
+                Add Another Surface ({images.length}/{MAX_IMAGES})
+              </p>
+              <div className="flex flex-col gap-1.5 w-full">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  fullWidth
+                  onClick={() => startCamera(null)}
+                  disabled={cameraActive}
+                >
+                  📷 Camera
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  fullWidth
+                  onClick={() => {
+                    if (multiFileInputRef.current) {
+                      multiFileInputRef.current.value = '';
+                      multiFileInputRef.current.click();
+                    }
+                  }}
+                  disabled={cameraActive}
+                >
+                  📁 Upload
+                </Button>
+              </div>
             </Card>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      ) : (
+        /* Empty State */
+        <Card className="flex flex-col items-center justify-center p-8 sm:p-12 text-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50/60">
+          <div className="w-16 h-16 rounded-full bg-navy-100 flex items-center justify-center text-3xl mb-4 text-navy-800">
+            📦
+          </div>
+          <h4 className="text-base font-semibold text-navy-900 mb-1">
+            No Package Label Images Uploaded Yet
+          </h4>
+          <p className="text-sm text-gray-500 max-w-md mb-6">
+            Upload or capture 1 to 10 photos of your product package surfaces (e.g. Front, Back, Left/Right side panels, MRP seal).
+          </p>
 
-      {/* Hidden file input */}
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => startCamera(null)}
+              className="flex items-center gap-2 shadow-sm"
+            >
+              📷 Open Camera
+            </Button>
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => {
+                if (multiFileInputRef.current) {
+                  multiFileInputRef.current.value = '';
+                  multiFileInputRef.current.click();
+                }
+              }}
+              className="flex items-center gap-2"
+            >
+              📁 Upload Image Files
+            </Button>
+          </div>
+          <p className="text-xs text-gray-400 mt-4">
+            Supports multi-file selection (PNG, JPG, WebP up to 5MB each). Maximum 10 surfaces.
+          </p>
+        </Card>
+      )}
+
+      {/* Hidden Multi-file input */}
       <input
-        ref={fileInputRef}
+        ref={multiFileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleMultiFileUpload}
+      />
+
+      {/* Hidden Single-file replace input */}
+      <input
+        ref={singleFileInputRef}
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          const targetSlot = activeSlotRef.current || activeSlot;
-          if (file && targetSlot) {
-            handleFileUpload(targetSlot, file);
-          }
-          e.target.value = '';
-        }}
+        onChange={handleSingleFileChange}
       />
     </div>
   );

@@ -60,7 +60,7 @@ export interface VisionProvider {
  */
 export interface VisionImageInput {
   dataUrl: string;
-  label: 'front' | 'back' | 'side' | 'side-other';
+  label: string;
   mimeType?: string;
 }
 
@@ -81,7 +81,7 @@ export interface FieldExtractionMeta {
   source: ExtractionSource;
   confidence: number;
   qualitativeConfidence?: QualitativeConfidence;
-  sourceSide?: 'front' | 'back' | 'side-other' | 'unknown' | 'multiple';
+  sourceSide?: string;
   ocrValue?: string;
   aiValue?: string;
   ocrEvidenceSnippet?: string;

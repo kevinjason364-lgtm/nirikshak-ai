@@ -32,8 +32,8 @@ function validateRequest(body: any): { valid: boolean; error?: string; images?: 
     return { valid: false, error: 'At least one image required' };
   }
 
-  if (body.images.length > 3) {
-    return { valid: false, error: 'Maximum 3 images allowed' };
+  if (body.images.length > 10) {
+    return { valid: false, error: 'Maximum 10 images allowed' };
   }
 
   const images: VisionImageInput[] = [];
@@ -47,8 +47,8 @@ function validateRequest(body: any): { valid: boolean; error?: string; images?: 
       return { valid: false, error: 'Invalid image dataUrl format' };
     }
 
-    if (!img.label || !['front', 'back', 'side', 'side-other'].includes(img.label)) {
-      return { valid: false, error: 'Each image must have valid label (front/back/side/side-other)' };
+    if (!img.label || typeof img.label !== 'string') {
+      return { valid: false, error: 'Each image must have a valid string label' };
     }
 
     // Rough size check (base64 typically ~33% larger than original)

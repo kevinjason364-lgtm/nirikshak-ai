@@ -17,7 +17,7 @@ export interface OCRField {
   confidenceScore: number; // 0-100
   source: string; // What text was matched
   sourceLine?: string; // The line it came from
-  sourceSide?: 'front' | 'back' | 'side-other' | 'unknown';
+  sourceSide?: string;
 }
 
 export interface ParsedOcrResult {
@@ -37,7 +37,7 @@ interface ExtractionCandidate {
   value: string | number | boolean;
   confidence: number;
   source: string;
-  sourceSide?: 'front' | 'back' | 'side-other' | 'unknown';
+  sourceSide?: string;
 }
 
 // Validation functions to prevent garbage data
@@ -147,17 +147,17 @@ function getConfidenceLevel(score: number): 'high' | 'medium' | 'low' {
   return 'low';
 }
 
-function findSourceSide(text: string, matchIndex: number): 'front' | 'back' | 'side-other' | 'unknown' {
+function findSourceSide(text: string, matchIndex: number): string {
   if (matchIndex < 0) return 'unknown';
-  const frontIdx = text.lastIndexOf('=== FRONT ===', matchIndex);
-  const backIdx = text.lastIndexOf('=== BACK ===', matchIndex);
-  const sideIdx = text.lastIndexOf('=== SIDE', matchIndex);
-
-  const maxIdx = Math.max(frontIdx, backIdx, sideIdx);
-  if (maxIdx === -1) return 'unknown';
-  if (maxIdx === frontIdx) return 'front';
-  if (maxIdx === backIdx) return 'back';
-  if (maxIdx === sideIdx) return 'side-other';
+  // Fast backward search for "=== LABEL ==="
+  const sub = text.substring(0, matchIndex);
+  const match = sub.match(/===\s+([^=]+?)\s+===/g);
+  if (match && match.length > 0) {
+    const lastMatch = match[match.length - 1];
+    const extracted = lastMatch.replace(/===/g, '').trim().toLowerCase();
+    // E.g. "FRONT LABEL" -> "front", "LEFT-SIDE LABEL" -> "left-side"
+    return extracted.replace(/\s*label$/i, '');
+  }
   return 'unknown';
 }
 
@@ -166,7 +166,7 @@ function findSourceSide(text: string, matchIndex: number): 'front' | 'back' | 's
  */
 function extractProductName(rawText: string, tesseractConfidence: number): ExtractionCandidate | null {
   const lines = rawText.split('\n').map(l => l.trim());
-  let currentSide: 'front' | 'back' | 'side-other' | 'unknown' = 'unknown';
+  let currentSide: string = 'unknown';
 
   // 1. First look for explicit anchors like "Product Name:", "Commodity:", "Item:"
   const explicitAnchors = [
@@ -196,7 +196,6 @@ function extractProductName(rawText: string, tesseractConfidence: number): Extra
   }
 
   // 2. Look for the prominent title line near top of Front label
-  // Find lines in the front section before other metadata declarations
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line.includes('=== FRONT ===')) { currentSide = 'front'; continue; }
@@ -223,11 +222,13 @@ function extractProductName(rawText: string, tesseractConfidence: number): Extra
  * Extract MRP with contextual anchors
  */
 function extractMRP(text: string, tesseractConfidence: number): ExtractionCandidate | null {
-  const mrpRegex = /(?:M\.?R\.?P\.?|MRP|PRICE|MAXIMUM\s*RETAIL\s*PRICE)\s*[:.\-]?\s*(?:RS\.?|INR|₹)?\s*([0-9]+(?:[.,][0-9]{1,2})?)/i;
+  const mrpRegex = /(?:M.?R.?P.?|MRP|PRICE|MAXIMUM\s*RETAIL\s*PRICE|MAX\s*RETAIL\s*PRICE)\s*(?:IS)?\s*[:.-]?\s*(?:RS.?|INR|₹)?\s*([0-9]+(?:[.,][0-9]{1,2})?)|(?:RS.?|INR|₹)\s*([0-9]+(?:[.,][0-9]{1,2})?)/i;
 
   const match = text.match(mrpRegex);
-  if (match && match[1] && match.index !== undefined) {
-    const val = parseFloat(match[1].replace(',', '.'));
+  if (match && (match[1] || match[2]) && match.index !== undefined) {
+    const rawVal = match[1] || match[2];
+    if (!rawVal) return null;
+    const val = parseFloat(rawVal.replace(',', '.'));
     if (validators.mrp(val)) {
       const confidence = Math.round(Math.min(90, tesseractConfidence * 0.95));
       const sourceSide = findSourceSide(text, match.index);
@@ -347,9 +348,9 @@ function extractDates(text: string, tesseractConfidence: number): {
   mfgYear?: string;
   expMonth?: string;
   expYear?: string;
-  sourceSide?: 'front' | 'back' | 'side-other' | 'unknown';
+  sourceSide?: string;
 } {
-  const dates: { mfgMonth?: string; mfgYear?: string; expMonth?: string; expYear?: string; sourceSide?: 'front' | 'back' | 'side-other' | 'unknown' } = {};
+  const dates: { mfgMonth?: string; mfgYear?: string; expMonth?: string; expYear?: string; sourceSide?: string } = {};
 
   const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 

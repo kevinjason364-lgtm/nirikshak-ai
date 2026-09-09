@@ -524,7 +524,12 @@ export function InspectionForm({
           </FormField>
 
           <div className="sm:col-span-2">
-            <FormField label="Does this product have a best-before / use-by date? (Manual Check)">
+            <FormField
+              label="Best-Before / Expiry Declaration Applicable"
+              hint="Does the product declare a limited shelf life?"
+              source={sourceMap['bestBefore']}
+              metadata={metadata['bestBefore.month']}
+            >
               <Select
                 value={formData.bestBefore.applicable === null ? '' : formData.bestBefore.applicable ? 'yes' : 'no'}
                 onChange={(e) => {
@@ -539,7 +544,7 @@ export function InspectionForm({
             </FormField>
           </div>
 
-          {formData.bestBefore.applicable && (
+          {formData.bestBefore.applicable !== false && (
             <>
               <FormField
                 label="Best Before / Use-By Day"
@@ -557,7 +562,7 @@ export function InspectionForm({
               </FormField>
               <FormField
                 label="Best Before Month"
-                required
+                required={formData.bestBefore.applicable === true}
                 confidence={confidence['bestBefore.month']}
                 source={sourceMap['bestBefore']}
                 metadata={metadata['bestBefore.month']}
@@ -576,7 +581,7 @@ export function InspectionForm({
               </FormField>
               <FormField
                 label="Best Before Year"
-                required
+                required={formData.bestBefore.applicable === true}
                 confidence={confidence['bestBefore.year']}
                 source={sourceMap['bestBefore']}
                 metadata={metadata['bestBefore.year']}

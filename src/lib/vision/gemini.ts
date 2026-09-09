@@ -24,19 +24,19 @@ Extract ONLY factual visible text and information from the product label images 
 5. Do NOT make legal determinations or compliance assessments
 
 **CRITICAL EXTRACTION RULES:**
-- Product Name: Extract from the largest/most prominent product title text on the front label (e.g., "GREEN TEA LEMON")
-- Brand / Marketer Name: Extract the brand name (e.g., "Flipkart Supermart")
-- Common / Generic Name: Extract if declared (e.g., "Flavoured Tea", "Green Tea")
-- MRP: Extract the numerical MRP value as a number (e.g., 149.00 -> 149). Do not include currency symbols.
+- Product Name: Extract from the largest/most prominent product title text on the label
+- Brand / Marketer Name: Extract the brand name
+- Common / Generic Name: Extract if declared
+- MRP: Extract the exact numerical MRP value visible as a number. Do not hallucinate or guess. Do not include currency symbols.
 - Tax Inclusion: Set mrpInclusiveTaxes to true if phrases like "INCL. OF ALL TAXES", "INCLUSIVE OF TAXES", or "(INCL. TAX)" are present
-- Net Quantity: Extract the numerical quantity (e.g., for "25 N Tea Bags" or "25 Tea Bags", netQuantity: 25, unit: "Tea Bags")
-- Net Contents / Weight: If weight or count is present, normalize standard units (g, kg, ml, l, pcs, Tea Bags)
-- Manufacturer: Extract the full company name (e.g., "ADITYA BIRLA GLOBAL TRADING (INDIA) PVT. LTD.") and full address as printed
-- Importer / Marketer: Extract company name (e.g., "FLIPKART INDIA PRIVATE LIMITED") and full address
-- Consumer Care Phone: Extract customer care telephone/helpline (e.g., "044-45614700" or toll free)
-- Consumer Care Email: Extract customer care email address (e.g., "supermart-feedback@flipkart.com")
+- Net Quantity: Extract the actual numerical quantity and unit visible on the package (e.g., netQuantity: 500, unit: "g", or netQuantity: 10, unit: "N")
+- Net Contents / Weight: If weight or count is present, normalize standard units (g, kg, ml, l, pcs, N, etc.)
+- Manufacturer: Extract the full company name and full address as printed
+- Importer / Marketer: Extract company name and full address
+- Consumer Care Phone: Extract customer care telephone/helpline
+- Consumer Care Email: Extract customer care email address
 - Dates: Extract manufacture/packaging date and expiry/best before date (Month MM and Year YYYY)
-- FSSAI License: Extract the 14-digit FSSAI license number(s) (e.g. starting with "100...")
+- FSSAI License: Extract the 14-digit FSSAI license number(s)
 - Batch / Lot / Barcode: Extract batch/lot number and barcode digits if visible
 
 **OUTPUT FORMAT:**
