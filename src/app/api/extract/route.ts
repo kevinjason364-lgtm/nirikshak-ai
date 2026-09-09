@@ -47,10 +47,6 @@ function validateRequest(body: any): { valid: boolean; error?: string; images?: 
       return { valid: false, error: 'Invalid image dataUrl format' };
     }
 
-    if (!img.label || typeof img.label !== 'string') {
-      return { valid: false, error: 'Each image must have a valid string label' };
-    }
-
     // Rough size check (base64 typically ~33% larger than original)
     const estimatedSize = img.dataUrl.length * 0.75;
     const maxSize = 5 * 1024 * 1024; // 5 MB max per image
@@ -60,7 +56,7 @@ function validateRequest(body: any): { valid: boolean; error?: string; images?: 
 
     images.push({
       dataUrl: img.dataUrl,
-      label: img.label as 'front' | 'back' | 'side' | 'side-other',
+      label: typeof img.label === 'string' ? img.label : undefined,
     });
   }
 

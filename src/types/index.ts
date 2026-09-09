@@ -59,6 +59,7 @@ export interface BestBeforeInfo {
   date: string;
   month: string;
   year: string;
+  text?: string;
 }
 
 export interface DimensionsInfo {
@@ -138,12 +139,13 @@ export interface InspectionFormData {
 
 export interface CapturedImage {
   id: string;
-  label: string; // Dynamic label for the surface captured (e.g., 'front', 'back', 'left-side', etc.)
   dataUrl: string; // thumbnail for display
   blobKey: string; // IndexedDB key for full image
   timestamp: number;
   qualityScore: number | null;
   qualityWarnings: string[];
+  // Internal metadata for provenance tracking (not user-facing)
+  _internalIndex?: number; // Image sequence number for system tracking
 }
 
 export interface ImageQualityResult {
@@ -273,6 +275,7 @@ export function getEmptyFormData(): InspectionFormData {
       date: '',
       month: '',
       year: '',
+      text: '',
     },
     consumerCare: {
       contactName: '',

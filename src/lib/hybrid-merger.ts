@@ -13,6 +13,7 @@
  */
 
 import type { InspectionFormData } from '@/types';
+import { deriveApplicability } from './rule-engine';
 import type {
   VisionExtractionCandidate,
   FieldExtractionMeta,
@@ -127,6 +128,7 @@ export function mergeExtractions(
       date: '',
       month: aiCandidate.bestBeforeMonth || '',
       year: aiCandidate.bestBeforeYear || '',
+      text: aiCandidate.bestBeforeText || '',
     },
     supplementary: {
       batchLot: aiCandidate.batchLot || '',
@@ -382,30 +384,53 @@ export function mergeExtractions(
   const ocrBB = ocrCandidate.bestBefore;
   const aiBB = aiMapped.bestBefore;
 
-  if (ocrBB?.month && aiBB?.month) {
-    const agree = datesAgree(ocrBB.month, ocrBB.year, aiBB.month, aiBB.year);
+  const hasOcrBBInfo = ocrBB && (ocrBB.month || ocrBB.year || ocrBB.date || ocrBB.text);
+  const hasAiBBInfo = aiBB && (aiBB.month || aiBB.year || aiBB.date || aiBB.text);
+
+  if (hasOcrBBInfo && hasAiBBInfo) {
+    const agreeMonthYear = datesAgree(ocrBB?.month, ocrBB?.year, aiBB?.month, aiBB?.year);
+    const agreeText = stringsAgree(ocrBB?.text, aiBB?.text);
+    const agree = agreeMonthYear || agreeText;
+
     formData.bestBefore = {
       applicable: true,
-      date: ocrBB.date || aiBB.date || '',
-      month: ocrBB.month || aiBB.month || '',
-      year: ocrBB.year || aiBB.year || '',
+      date: ocrBB?.date || aiBB?.date || '',
+      month: ocrBB?.month || aiBB?.month || '',
+      year: ocrBB?.year || aiBB?.year || '',
+      text: ocrBB?.text || aiBB?.text || '',
     };
-    const src: ExtractionSource = agree ? 'ocr+ai' : 'manual';
-    const score = agree ? 95 : 55;
+
+    // If they share month/year or share text, they agree.
+    // If one has only text and one has only mm/yyyy, they complement each other (so we can consider it an agreement of different fragments)
+    const complement = (Boolean(ocrBB?.text) && !ocrBB?.month && Boolean(aiBB?.month) && !aiBB?.text) ||
+                       (Boolean(aiBB?.text) && !aiBB?.month && Boolean(ocrBB?.month) && !ocrBB?.text);
+
+    const isHighConfidence = agree || complement;
+    const src: ExtractionSource = isHighConfidence ? 'ocr+ai' : 'manual';
+    const score = isHighConfidence ? 95 : 55;
+
     sourceMap['bestBefore'] = src;
-    recordFieldMeta('bestBefore.month', src, score, ocrBB.month, aiBB.month, 'bestBefore.month');
-    recordFieldMeta('bestBefore.year', src, score, ocrBB.year, aiBB.year, 'bestBefore.year');
-  } else if (ocrBB && (ocrBB.month || ocrBB.year)) {
+    if (formData.bestBefore.month) recordFieldMeta('bestBefore.month', src, score, ocrBB?.month, aiBB?.month, 'bestBefore.month');
+    if (formData.bestBefore.year) recordFieldMeta('bestBefore.year', src, score, ocrBB?.year, aiBB?.year, 'bestBefore.year');
+    if (formData.bestBefore.text) recordFieldMeta('bestBefore.text', src, score, ocrBB?.text, aiBB?.text, 'bestBefore.text');
+  } else if (hasOcrBBInfo) {
     formData.bestBefore = ocrBB;
     sourceMap['bestBefore'] = 'ocr';
-    if (ocrBB.month) recordFieldMeta('bestBefore.month', 'ocr', ocrConfidence['bestBefore.month'] || 80, ocrBB.month, undefined, 'bestBefore.month');
-    if (ocrBB.year) recordFieldMeta('bestBefore.year', 'ocr', ocrConfidence['bestBefore.year'] || 80, ocrBB.year, undefined, 'bestBefore.year');
-  } else if (aiBB && (aiBB.month || aiBB.year)) {
+    const score = 80; // default for dates from OCR
+    if (ocrBB.month) recordFieldMeta('bestBefore.month', 'ocr', ocrConfidence['bestBefore.month'] || score, ocrBB.month, undefined, 'bestBefore.month');
+    if (ocrBB.year) recordFieldMeta('bestBefore.year', 'ocr', ocrConfidence['bestBefore.year'] || score, ocrBB.year, undefined, 'bestBefore.year');
+    if (ocrBB.text) recordFieldMeta('bestBefore.text', 'ocr', ocrConfidence['bestBefore.text'] || score, ocrBB.text, undefined, 'bestBefore.text');
+  } else if (hasAiBBInfo) {
     formData.bestBefore = aiBB;
     sourceMap['bestBefore'] = 'ai';
-    if (aiBB.month) recordFieldMeta('bestBefore.month', 'ai', aiConfidence['bestBeforeMonth'] || 80, undefined, aiBB.month);
-    if (aiBB.year) recordFieldMeta('bestBefore.year', 'ai', aiConfidence['bestBeforeYear'] || 80, undefined, aiBB.year);
+    const score = 80;
+    if (aiBB.month) recordFieldMeta('bestBefore.month', 'ai', aiConfidence['bestBeforeMonth'] || score, undefined, aiBB.month);
+    if (aiBB.year) recordFieldMeta('bestBefore.year', 'ai', aiConfidence['bestBeforeYear'] || score, undefined, aiBB.year);
+    if (aiBB.text) recordFieldMeta('bestBefore.text', 'ai', aiConfidence['bestBeforeText'] || score, undefined, aiBB.text);
   }
+
+  // Derive Rule 3 applicability status from merged facts
+  formData.applicability = deriveApplicability(formData);
 
   return {
     formData,

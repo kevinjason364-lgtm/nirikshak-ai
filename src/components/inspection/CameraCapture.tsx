@@ -9,25 +9,12 @@ import { v4 as uuidv4 } from 'uuid';
 
 const MAX_IMAGES = 10;
 
-export const SURFACE_OPTIONS: { id: string; label: string }[] = [
-  { id: 'front', label: 'Front Panel' },
-  { id: 'back', label: 'Back Panel' },
-  { id: 'left-side', label: 'Left Side' },
-  { id: 'right-side', label: 'Right Side' },
-  { id: 'top', label: 'Top Panel' },
-  { id: 'bottom', label: 'Bottom / Base' },
-  { id: 'mrp-date-panel', label: 'MRP & Date Panel' },
-  { id: 'side-other', label: 'Side / Other' },
-];
-
 interface CameraCaptureProps {
   images: CapturedImage[];
   onImagesChange: (images: CapturedImage[]) => void;
 }
 
 export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
-  const [activeTargetId, setActiveTargetId] = useState<string | null>(null);
-  const [pendingLabel, setPendingLabel] = useState<string>('front');
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [qualityResults, setQualityResults] = useState<Record<string, ImageQualityResult>>({});
@@ -36,8 +23,8 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const multiFileInputRef = useRef<HTMLInputElement>(null);
-  const singleFileInputRef = useRef<HTMLInputElement>(null);
   const replaceTargetIdRef = useRef<string | null>(null);
+  const singleFileInputRef = useRef<HTMLInputElement>(null);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -63,18 +50,9 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
     });
   }, [images, qualityResults]);
 
-  const startCamera = async (targetId: string | null = null, defaultLabel?: string) => {
-    if (images.length >= MAX_IMAGES && !targetId) return;
+  const startCamera = async () => {
+    if (images.length >= MAX_IMAGES) return;
 
-    setActiveTargetId(targetId);
-    if (defaultLabel) {
-      setPendingLabel(defaultLabel);
-    } else if (!targetId) {
-      // Suggest next logical surface label
-      const usedLabels = new Set(images.map((img) => img.label.toLowerCase()));
-      const nextOption = SURFACE_OPTIONS.find((opt) => !usedLabels.has(opt.id));
-      setPendingLabel(nextOption ? nextOption.id : 'side-other');
-    }
     setCameraError(null);
 
     try {
@@ -107,18 +85,10 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
     stopCamera();
-
-    if (activeTargetId) {
-      // Replacing existing image
-      await updateImageData(activeTargetId, dataUrl);
-    } else {
-      // Adding new image
-      await addNewImage(pendingLabel, dataUrl);
-    }
-    setActiveTargetId(null);
+    await addNewImage(dataUrl);
   };
 
-  const addNewImage = async (label: string, dataUrl: string) => {
+  const addNewImage = async (dataUrl: string) => {
     if (images.length >= MAX_IMAGES) return;
 
     const quality = await assessImageQuality(dataUrl);
@@ -126,12 +96,12 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
 
     const newImage: CapturedImage = {
       id,
-      label: label || 'side-other',
       dataUrl,
       blobKey: `img-${id}`,
       timestamp: Date.now(),
       qualityScore: quality.score,
       qualityWarnings: quality.warnings,
+      _internalIndex: images.length,
     };
 
     setQualityResults((prev) => ({ ...prev, [id]: quality }));
@@ -158,13 +128,14 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
     onImagesChange(updated);
   };
 
-  const updateImageLabel = (id: string, newLabel: string) => {
-    const updated = images.map((img) => (img.id === id ? { ...img, label: newLabel } : img));
-    onImagesChange(updated);
-  };
-
   const removeImage = (id: string) => {
-    onImagesChange(images.filter((img) => img.id !== id));
+    const filtered = images.filter((img) => img.id !== id);
+    // Reindex remaining images
+    const reindexed = filtered.map((img, idx) => ({
+      ...img,
+      _internalIndex: idx,
+    }));
+    onImagesChange(reindexed);
   };
 
   const handleSingleFileUpload = (id: string) => {
@@ -199,7 +170,6 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
     const availableSlots = MAX_IMAGES - images.length;
     const filesToProcess = Array.from(files).slice(0, availableSlots);
 
-    const existingLabels = new Set(images.map((img) => img.label.toLowerCase()));
     const newCapturedList: CapturedImage[] = [];
 
     for (let i = 0; i < filesToProcess.length; i++) {
@@ -212,22 +182,17 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
 
       if (!dataUrl) continue;
 
-      // Assign an unused surface label if possible
-      const availableOpt = SURFACE_OPTIONS.find((opt) => !existingLabels.has(opt.id));
-      const chosenLabel = availableOpt ? availableOpt.id : `surface-${images.length + i + 1}`;
-      existingLabels.add(chosenLabel);
-
       const quality = await assessImageQuality(dataUrl);
       const id = uuidv4();
 
       newCapturedList.push({
         id,
-        label: chosenLabel,
         dataUrl,
         blobKey: `img-${id}`,
         timestamp: Date.now(),
         qualityScore: quality.score,
         qualityWarnings: quality.warnings,
+        _internalIndex: images.length + i,
       });
 
       setQualityResults((prev) => ({ ...prev, [id]: quality }));
@@ -270,13 +235,13 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-navy-900">Label Surface Images</h3>
+            <h3 className="text-lg font-semibold text-navy-900">Package Images</h3>
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-navy-100 text-navy-800">
               {images.length} / {MAX_IMAGES}
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
-            Capture or upload 1 to 10 package surfaces (Front, Back, Side panels, MRP/Date seals).
+            Upload or capture package photos. The AI will automatically extract information from all images.
           </p>
         </div>
 
@@ -286,7 +251,7 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => startCamera(null)}
+                onClick={() => startCamera()}
                 disabled={cameraActive || isUploading}
                 className="flex items-center gap-1.5"
               >
@@ -323,21 +288,6 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
               className="w-full max-h-80 sm:max-h-96 object-contain"
             />
             <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col items-center gap-3">
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-white/90 font-medium">Surface Tag:</span>
-                <select
-                  value={pendingLabel}
-                  onChange={(e) => setPendingLabel(e.target.value)}
-                  className="bg-navy-900 text-white text-xs rounded px-2 py-1 border border-white/30"
-                >
-                  {SURFACE_OPTIONS.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               <div className="flex items-center gap-4">
                 <Button variant="secondary" size="lg" onClick={capturePhoto} className="shadow-md">
                   📸 Capture Frame
@@ -347,7 +297,6 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
                   size="md"
                   onClick={() => {
                     stopCamera();
-                    setActiveTargetId(null);
                   }}
                   className="text-white border-white hover:bg-white/10"
                 >
@@ -357,7 +306,7 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
             </div>
           </div>
           <p className="text-xs text-center text-gray-500 mt-2">
-            Capturing: {SURFACE_OPTIONS.find((s) => s.id === pendingLabel)?.label || pendingLabel}
+            Capturing image {images.length + 1}
           </p>
         </Card>
       )}
@@ -380,37 +329,20 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
 
             return (
               <Card key={img.id} padding="sm" className="flex flex-col relative group border hover:border-navy-300 transition-all">
-                {/* Surface Tag & Index Selector */}
+                {/* Image index badge */}
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-xs font-semibold text-navy-800 bg-gray-100 px-1.5 py-0.5 rounded">
                     #{idx + 1}
                   </span>
-                  <select
-                    value={img.label}
-                    onChange={(e) => updateImageLabel(img.id, e.target.value)}
-                    className="text-xs font-medium text-navy-900 bg-white border border-gray-300 rounded px-2 py-1 flex-1 focus:ring-1 focus:ring-navy-500"
-                  >
-                    {SURFACE_OPTIONS.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                    {!SURFACE_OPTIONS.some((opt) => opt.id === img.label) && (
-                      <option value={img.label}>{img.label}</option>
-                    )}
-                  </select>
                 </div>
 
                 {/* Thumbnail */}
                 <div className="relative aspect-[4/3] rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
                   <img
                     src={img.dataUrl}
-                    alt={`${img.label} capture`}
+                    alt={`Package image ${idx + 1}`}
                     className="w-full h-full object-cover"
                   />
-                  <div className="absolute top-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded backdrop-blur-sm">
-                    {img.label.toUpperCase()}
-                  </div>
                 </div>
 
                 {/* Quality indicator */}
@@ -439,7 +371,7 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
                     size="sm"
                     variant="outline"
                     className="flex-1 text-xs py-1"
-                    onClick={() => startCamera(img.id, img.label)}
+                    onClick={() => startCamera()}
                     title="Retake photo using camera"
                   >
                     📷 Retake
@@ -475,14 +407,14 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
             >
               <div className="text-3xl text-gray-400">➕</div>
               <p className="text-xs font-medium text-gray-600 text-center">
-                Add Another Surface ({images.length}/{MAX_IMAGES})
+                Add More Images ({images.length}/{MAX_IMAGES})
               </p>
               <div className="flex flex-col gap-1.5 w-full">
                 <Button
                   size="sm"
                   variant="primary"
                   fullWidth
-                  onClick={() => startCamera(null)}
+                  onClick={() => startCamera()}
                   disabled={cameraActive}
                 >
                   📷 Camera
@@ -512,17 +444,17 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
             📦
           </div>
           <h4 className="text-base font-semibold text-navy-900 mb-1">
-            No Package Label Images Uploaded Yet
+            No Package Images Yet
           </h4>
           <p className="text-sm text-gray-500 max-w-md mb-6">
-            Upload or capture 1 to 10 photos of your product package surfaces (e.g. Front, Back, Left/Right side panels, MRP seal).
+            Upload or capture multiple photos of your product package. The AI will automatically analyze all images and extract required information.
           </p>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Button
               variant="primary"
               size="lg"
-              onClick={() => startCamera(null)}
+              onClick={() => startCamera()}
               className="flex items-center gap-2 shadow-sm"
             >
               📷 Open Camera
@@ -542,7 +474,7 @@ export function CameraCapture({ images, onImagesChange }: CameraCaptureProps) {
             </Button>
           </div>
           <p className="text-xs text-gray-400 mt-4">
-            Supports multi-file selection (PNG, JPG, WebP up to 5MB each). Maximum 10 surfaces.
+            Supports multi-file selection (PNG, JPG, WebP up to 5MB each). Maximum 10 images.
           </p>
         </Card>
       )}

@@ -1,5 +1,6 @@
 import type {
   InspectionFormData,
+  ApplicabilityInfo,
   RuleResult,
   RuleResultStatus,
   RuleDefinition,
@@ -18,12 +19,58 @@ export function getRulesMetadata(): RulesMetadata {
   return metadata;
 }
 
+export function deriveApplicability(
+  formData: Partial<InspectionFormData>,
+  rawText: string = ''
+): ApplicabilityInfo {
+  const text = (rawText + ' ' + (formData.productName || '') + ' ' + (formData.commonGenericName || '')).toLowerCase();
+
+  const isIndustrial = /industrial\s*consumer|for\s*industrial\s*use|not\s*for\s*retail\s*sale/i.test(text);
+  const isInstitutional = /institutional\s*consumer|for\s*institutional\s*use/i.test(text);
+
+  const isCement = /cement/i.test(text);
+  const isFertiliser = /fertili[sz]er/i.test(text);
+  const isAgriculturalFarmProduce = /agricultural\s*produce|farm\s*produce|raw\s*produce/i.test(text);
+
+  let quantityKg: number | null = null;
+  let quantityLitre: number | null = null;
+
+  if (formData.netQuantity?.value) {
+    const val = formData.netQuantity.value;
+    const unit = (formData.netQuantity.unit || '').toLowerCase();
+    if (unit === 'g' || unit === 'gm' || unit === 'gms' || unit === 'grams') {
+      quantityKg = val / 1000;
+    } else if (unit === 'kg' || unit === 'kgs' || unit === 'kilograms') {
+      quantityKg = val;
+    } else if (unit === 'ml' || unit === 'millilitres') {
+      quantityLitre = val / 1000;
+    } else if (unit === 'l' || unit === 'ltr' || unit === 'ltrs' || unit === 'litres' || unit === 'litre') {
+      quantityLitre = val;
+    }
+  }
+
+  const isRetailPackage = isIndustrial || isInstitutional ? false : true;
+  const soldDirectlyToConsumer = isIndustrial || isInstitutional ? false : true;
+
+  return {
+    isRetailPackage,
+    soldDirectlyToConsumer,
+    quantityKg,
+    quantityLitre,
+    isCement,
+    isFertiliser,
+    isAgriculturalFarmProduce,
+    isIndustrialConsumerPackage: isIndustrial,
+    isInstitutionalConsumerPackage: isInstitutional,
+  };
+}
+
 export function getRules(): RuleDefinition[] {
   return rules;
 }
 
 interface ApplicabilityResult {
-  applicable: boolean;
+  status: 'APPLICABLE' | 'NOT_APPLICABLE' | 'NEEDS_REVIEW';
   reason: string;
 }
 
@@ -31,16 +78,16 @@ export function checkApplicability(formData: InspectionFormData): ApplicabilityR
   const { applicability } = formData;
 
   if (applicability.isRetailPackage === false) {
-    return { applicable: false, reason: 'Not a retail package. Outside prototype scope.' };
+    return { status: 'NOT_APPLICABLE', reason: 'Not a retail package. Outside prototype scope.' };
   }
 
   if (applicability.soldDirectlyToConsumer === false) {
-    return { applicable: false, reason: 'Not sold directly to consumer. Outside prototype scope.' };
+    return { status: 'NOT_APPLICABLE', reason: 'Not sold directly to consumer. Outside prototype scope.' };
   }
 
   if (applicability.isIndustrialConsumerPackage || applicability.isInstitutionalConsumerPackage) {
     return {
-      applicable: false,
+      status: 'NOT_APPLICABLE',
       reason: 'Industrial/institutional-consumer package. Rule 3 exclusion applies.',
     };
   }
@@ -54,14 +101,14 @@ export function checkApplicability(formData: InspectionFormData): ApplicabilityR
       qtyKg > 50
     ) {
       return {
-        applicable: false,
+        status: 'NOT_APPLICABLE',
         reason:
           'Cement/fertiliser/agricultural produce in bags above 50 kg. Rule 3 exclusion applies.',
       };
     }
     if (!applicability.isCement && !applicability.isFertiliser && !applicability.isAgriculturalFarmProduce) {
       return {
-        applicable: false,
+        status: 'NEEDS_REVIEW',
         reason: 'Package exceeds 25 kg/25 litres. Rule 3 exclusion may apply — needs legal review.',
       };
     }
@@ -69,12 +116,12 @@ export function checkApplicability(formData: InspectionFormData): ApplicabilityR
 
   if (applicability.isRetailPackage === null || applicability.soldDirectlyToConsumer === null) {
     return {
-      applicable: true,
+      status: 'APPLICABLE',
       reason: 'Applicability not fully confirmed. Proceeding with checks; review applicability.',
     };
   }
 
-  return { applicable: true, reason: 'Retail package sold directly to consumer. Rules apply.' };
+  return { status: 'APPLICABLE', reason: 'Retail package sold directly to consumer. Rules apply.' };
 }
 
 function checkManufacturerIdentification(formData: InspectionFormData): RuleResult {
@@ -402,6 +449,7 @@ function checkBestBefore(formData: InspectionFormData): RuleResult {
   // For food, return needs-review instead of fail
   if (formData.category === 'food') {
     const hasDate = formData.bestBefore.month.trim() && formData.bestBefore.year.trim();
+    const hasText = formData.bestBefore.text?.trim();
     return {
       ruleId: rule.id,
       ruleRef: rule.ruleRef,
@@ -409,6 +457,8 @@ function checkBestBefore(formData: InspectionFormData): RuleResult {
       status: 'needs-review',
       evidence: hasDate
         ? `Best before: ${formData.bestBefore.month}/${formData.bestBefore.year}`
+        : hasText
+        ? `Best before text: ${formData.bestBefore.text}`
         : 'Best-before date details may be incomplete.',
       reason:
         'Needs Review — food products are governed by food-specific requirements (FSSAI). This Legal Metrology check does not determine full food-labelling compliance.',
@@ -417,14 +467,17 @@ function checkBestBefore(formData: InspectionFormData): RuleResult {
     };
   }
 
-  if (!formData.bestBefore.month.trim() || !formData.bestBefore.year.trim()) {
+  const hasSpecificDate = formData.bestBefore.month.trim() && formData.bestBefore.year.trim();
+  const hasValidText = formData.bestBefore.text?.trim();
+
+  if (!hasSpecificDate && !hasValidText) {
     return {
       ruleId: rule.id,
       ruleRef: rule.ruleRef,
       title: rule.title,
       status: 'fail',
-      evidence: `Best before: ${formData.bestBefore.date || '-'}/${formData.bestBefore.month || '-'}/${formData.bestBefore.year || '-'}`,
-      reason: 'Best-before/use-by month and year are required.',
+      evidence: `Best before: ${formData.bestBefore.date || '-'}/${formData.bestBefore.month || '-'}/${formData.bestBefore.year || '-'} (text: ${formData.bestBefore.text || '-'})`,
+      reason: 'Best-before/use-by month and year (or valid shelf-life text) are required.',
       sourceReference: rule.sourceReference,
       sourceUrl: rule.sourceUrl,
     };
@@ -435,8 +488,10 @@ function checkBestBefore(formData: InspectionFormData): RuleResult {
     ruleRef: rule.ruleRef,
     title: rule.title,
     status: 'pass',
-    evidence: `Best before: ${formData.bestBefore.date ? formData.bestBefore.date + '/' : ''}${formData.bestBefore.month}/${formData.bestBefore.year}`,
-    reason: 'Best-before/use-by date declared.',
+    evidence: hasValidText
+      ? `Best before: ${formData.bestBefore.text}`
+      : `Best before: ${formData.bestBefore.date ? formData.bestBefore.date + '/' : ''}${formData.bestBefore.month}/${formData.bestBefore.year}`,
+    reason: 'Best-before/use-by date or shelf-life declared.',
     sourceReference: rule.sourceReference,
     sourceUrl: rule.sourceUrl,
   };
@@ -628,7 +683,7 @@ export function runInspection(formData: InspectionFormData): {
 } {
   const applicabilityResult = checkApplicability(formData);
 
-  if (!applicabilityResult.applicable) {
+  if (applicabilityResult.status === 'NOT_APPLICABLE') {
     return {
       results: [],
       overallStatus: 'not-applicable',

@@ -272,23 +272,45 @@ export default function InspectPage() {
       </div>
 
       {/* Step: Image Capture */}
-      {step === 'images' && (
+      {step === 'images' && !isProcessing && (
         <>
           <CameraCapture images={images} onImagesChange={setImages} />
 
-          <div className="flex flex-col sm:flex-row gap-3 justify-end">
+          <div className="flex flex-col sm:flex-row gap-3 justify-end items-center mt-6">
             <Button variant="outline" onClick={() => router.push('/')} disabled={isProcessing}>
               Cancel
             </Button>
             <Button variant="primary" onClick={handleContinueToForm} disabled={isProcessing}>
-              {isProcessing
-                ? (visionAIAvailable ? 'Extracting via Vision AI + OCR...' : 'Extracting via OCR...')
-                : images.length > 0
-                  ? (visionAIAvailable ? 'Run Hybrid Extraction →' : 'Run OCR & Continue →')
-                  : 'Continue to Form →'}
+              {images.length > 0
+                ? (visionAIAvailable ? 'Run Hybrid Extraction →' : 'Run OCR & Continue →')
+                : 'Continue to Form →'}
             </Button>
           </div>
         </>
+      )}
+
+      {/* Processing State */}
+      {step === 'images' && isProcessing && (
+        <Card className="flex flex-col items-center justify-center p-12 text-center border border-navy-200 bg-white shadow-sm mt-8 animate-in fade-in zoom-in duration-300">
+          <div className="relative w-20 h-20 mb-6">
+            <div className="absolute inset-0 border-4 border-navy-100 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-navy-600 rounded-full border-t-transparent animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center text-2xl">
+              📦
+            </div>
+          </div>
+          <h3 className="text-xl font-bold text-navy-900 mb-2">Analyzing Evidence</h3>
+          <p className="text-sm font-medium text-navy-600 mb-6 min-h-[1.5rem] animate-pulse">
+            {extractionStatusMessage || 'Preparing images...'}
+          </p>
+          <div className="w-full max-w-md bg-gray-100 rounded-full h-2 mb-2 overflow-hidden relative">
+            <div className="absolute top-0 bottom-0 left-0 bg-navy-600 w-1/2 rounded-full animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite] opacity-75"></div>
+            <div className="absolute top-0 bottom-0 left-0 bg-navy-600 rounded-full w-full animate-pulse"></div>
+          </div>
+          <p className="text-xs text-gray-400 mt-4">
+            Model: {visionAIAvailable ? 'Hybrid (Vision AI + Tesseract OCR)' : 'Tesseract OCR (Local fallback)'}
+          </p>
+        </Card>
       )}
 
       {/* Step: Form */}

@@ -546,6 +546,21 @@ export function InspectionForm({
 
           {formData.bestBefore.applicable !== false && (
             <>
+              <div className="sm:col-span-2">
+                <FormField
+                  label="Best Before / Shelf Life Statement"
+                  hint="e.g. 'Best Before 12 Months from Packaging' or 'Use By 24 Months from Mfd'"
+                  confidence={confidence['bestBefore.text']}
+                  source={sourceMap['bestBefore']}
+                  metadata={metadata['bestBefore.text']}
+                >
+                  <Input
+                    value={formData.bestBefore.text || ''}
+                    onChange={(e) => updateNested('bestBefore', 'text', e.target.value)}
+                    placeholder="e.g. Best Before 12 Months from Packaging"
+                  />
+                </FormField>
+              </div>
               <FormField
                 label="Best Before / Use-By Day"
                 hint="Optional"
@@ -562,7 +577,7 @@ export function InspectionForm({
               </FormField>
               <FormField
                 label="Best Before Month"
-                required={formData.bestBefore.applicable === true}
+                required={formData.bestBefore.applicable === true && !formData.bestBefore.text?.trim()}
                 confidence={confidence['bestBefore.month']}
                 source={sourceMap['bestBefore']}
                 metadata={metadata['bestBefore.month']}
@@ -581,7 +596,7 @@ export function InspectionForm({
               </FormField>
               <FormField
                 label="Best Before Year"
-                required={formData.bestBefore.applicable === true}
+                required={formData.bestBefore.applicable === true && !formData.bestBefore.text?.trim()}
                 confidence={confidence['bestBefore.year']}
                 source={sourceMap['bestBefore']}
                 metadata={metadata['bestBefore.year']}

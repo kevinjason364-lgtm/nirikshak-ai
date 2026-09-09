@@ -175,9 +175,11 @@ function extractProductName(rawText: string, tesseractConfidence: number): Extra
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line.includes('=== FRONT ===')) { currentSide = 'front'; continue; }
-    if (line.includes('=== BACK ===')) { currentSide = 'back'; continue; }
-    if (line.includes('=== SIDE')) { currentSide = 'side-other'; continue; }
+    const headerMatch = line.match(/^===\s+(.+?)\s+===$/);
+    if (headerMatch) {
+      currentSide = headerMatch[1].trim().toLowerCase();
+      continue;
+    }
 
     for (const anchor of explicitAnchors) {
       const match = line.match(anchor);
@@ -195,15 +197,18 @@ function extractProductName(rawText: string, tesseractConfidence: number): Extra
     }
   }
 
-  // 2. Look for the prominent title line near top of Front label
+  // 2. Look for the prominent title line near top of first image/front label
+  currentSide = 'unknown';
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (line.includes('=== FRONT ===')) { currentSide = 'front'; continue; }
-    if (line.includes('=== BACK ===')) { currentSide = 'back'; continue; }
-    if (line.includes('=== SIDE')) { currentSide = 'side-other'; continue; }
+    const headerMatch = line.match(/^===\s+(.+?)\s+===$/);
+    if (headerMatch) {
+      currentSide = headerMatch[1].trim().toLowerCase();
+      continue;
+    }
 
-    // Only search in Front or Unknown
-    if (currentSide !== 'front' && currentSide !== 'unknown') continue;
+    // Prefer first image (image 1, front) or unknown
+    if (currentSide !== 'image 1' && currentSide !== 'front' && currentSide !== 'unknown') continue;
 
     if (validators.productName(line)) {
       return {
@@ -222,11 +227,13 @@ function extractProductName(rawText: string, tesseractConfidence: number): Extra
  * Extract MRP with contextual anchors
  */
 function extractMRP(text: string, tesseractConfidence: number): ExtractionCandidate | null {
-  const mrpRegex = /(?:M.?R.?P.?|MRP|PRICE|MAXIMUM\s*RETAIL\s*PRICE|MAX\s*RETAIL\s*PRICE)\s*(?:IS)?\s*[:.-]?\s*(?:RS.?|INR|₹)?\s*([0-9]+(?:[.,][0-9]{1,2})?)|(?:RS.?|INR|₹)\s*([0-9]+(?:[.,][0-9]{1,2})?)/i;
+  // Require explicit MRP or currency anchor, and then a number.
+  // Add negative lookahead to not match if followed by N (unit), Tea Bags, etc.
+  const mrpRegex = /(?:M\.?R\.?P\.?|MRP|PRICE|MAXIMUM\s*RETAIL\s*PRICE|MAX\s*RETAIL\s*PRICE|RS\.?|INR|₹)\s*(?:IS)?\s*[:.-]?\s*([0-9]+(?:[.,][0-9]{1,2})?)(?!\s*(?:N|Tea\s*Bags|Bags|Sachets|Packs|g|kg|ml|l))\b/i;
 
   const match = text.match(mrpRegex);
-  if (match && (match[1] || match[2]) && match.index !== undefined) {
-    const rawVal = match[1] || match[2];
+  if (match && match[1] && match.index !== undefined) {
+    const rawVal = match[1];
     if (!rawVal) return null;
     const val = parseFloat(rawVal.replace(',', '.'));
     if (validators.mrp(val)) {
@@ -348,9 +355,10 @@ function extractDates(text: string, tesseractConfidence: number): {
   mfgYear?: string;
   expMonth?: string;
   expYear?: string;
+  expText?: string;
   sourceSide?: string;
 } {
-  const dates: { mfgMonth?: string; mfgYear?: string; expMonth?: string; expYear?: string; sourceSide?: string } = {};
+  const dates: { mfgMonth?: string; mfgYear?: string; expMonth?: string; expYear?: string; expText?: string; sourceSide?: string } = {};
 
   const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
@@ -377,6 +385,9 @@ function extractDates(text: string, tesseractConfidence: number): {
   // Best Before / Expiry
   const expRegex = /(?:EXP(?:IRY)?|USE\s*BY|BEST\s*BEFORE)\.?\s*(?:DATE)?\s*[:.\-]?\s*(?:([0-9]{1,2})[\/\.-])?([0-9]{1,2}|[A-Za-z]{3,9})[\/\.-]([0-9]{2,4})/i;
   const expMatch = text.match(expRegex);
+  const expTextRegex = /(?:EXP(?:IRY)?|USE\s*BY|BEST\s*BEFORE)\.?\s*(?:DATE)?\s*[:.\-]?\s*((?:[0-9]+\s*(?:MONTHS?|YEARS?|WEEKS?|DAYS?))\s*(?:FROM\s*(?:MFG|MANUFACTURE|PACKING|PACKAGING))?)/i;
+  const expTextMatch = text.match(expTextRegex);
+
   if (expMatch && expMatch.index !== undefined) {
     let month = expMatch[2];
     const mIdx = monthNames.findIndex(m => month.toLowerCase().startsWith(m));
@@ -393,6 +404,13 @@ function extractDates(text: string, tesseractConfidence: number): {
     dates.expYear = year;
     if (!dates.sourceSide) {
       dates.sourceSide = findSourceSide(text, expMatch.index);
+    }
+  }
+
+  if (expTextMatch && expTextMatch[1]) {
+    dates.expText = expTextMatch[1].trim();
+    if (!dates.sourceSide) {
+      dates.sourceSide = findSourceSide(text, expTextMatch.index || 0);
     }
   }
 
@@ -487,13 +505,13 @@ function extractBrand(text: string, tesseractConfidence: number): ExtractionCand
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
 
   // Look for prominent brand lines (shorter, fully uppercase or title case) near the top
-  const frontIndex = lines.findIndex(l => l.includes('=== FRONT ==='));
+  const firstImageIndex = lines.findIndex(l => /^===\s+(FRONT|IMAGE 1)\s+===$/i.test(l));
   let searchLines = lines;
 
-  if (frontIndex !== -1) {
-    // Only search in Front section for brand if available
-    const endIndex = lines.findIndex((l, i) => i > frontIndex && l.startsWith('==='));
-    searchLines = lines.slice(frontIndex + 1, endIndex !== -1 ? endIndex : undefined);
+  if (firstImageIndex !== -1) {
+    // Only search in first image/front section for brand if available
+    const endIndex = lines.findIndex((l, i) => i > firstImageIndex && l.startsWith('==='));
+    searchLines = lines.slice(firstImageIndex + 1, endIndex !== -1 ? endIndex : undefined);
   }
 
   for (const line of searchLines) {
@@ -503,7 +521,7 @@ function extractBrand(text: string, tesseractConfidence: number): ExtractionCand
       if (!/\b(?:product|price|mrp|weight|qty|net|mfg|exp|batch)\b/i.test(line)) {
         const confidence = Math.round(Math.min(75, tesseractConfidence * 0.8));
         const idx = text.indexOf(line);
-        const sourceSide = idx >= 0 ? findSourceSide(text, idx) : (frontIndex !== -1 ? 'front' : 'unknown');
+        const sourceSide = idx >= 0 ? findSourceSide(text, idx) : (firstImageIndex !== -1 ? 'image 1' : 'unknown');
         return { value: line, confidence, source: `Brand candidate: "${line}"`, sourceSide };
       }
     }
@@ -713,6 +731,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       date: '',
       month: dates.expMonth,
       year: dates.expYear,
+      text: dates.expText || '',
     };
     confidence['bestBefore.month'] = 80;
     confidence['bestBefore.year'] = 80;
@@ -733,6 +752,25 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
     usefulFieldsFound += 2;
     fieldsExtracted += 2;
     totalConfidenceSum += 160;
+  } else if (dates.expText) {
+    formData.bestBefore = {
+      applicable: true,
+      date: '',
+      month: '',
+      year: '',
+      text: dates.expText,
+    };
+    confidence['bestBefore.text'] = 80;
+    fieldDetails['bestBefore.text'] = {
+      value: dates.expText,
+      confidence: 'high',
+      confidenceScore: 80,
+      source: `Text: ${dates.expText}`,
+      sourceSide: dates.sourceSide || 'unknown',
+    };
+    usefulFieldsFound += 1;
+    fieldsExtracted += 1;
+    totalConfidenceSum += 80;
   }
 
   // 8. Phone

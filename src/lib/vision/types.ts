@@ -26,6 +26,7 @@ export interface VisionExtractionCandidate {
   manufactureYear?: string;
   bestBeforeMonth?: string;
   bestBeforeYear?: string;
+  bestBeforeText?: string;
   consumerCareName?: string;
   consumerCareAddress?: string;
   consumerCarePhone?: string;
@@ -60,8 +61,9 @@ export interface VisionProvider {
  */
 export interface VisionImageInput {
   dataUrl: string;
-  label: string;
+  label?: string; // Optional internal label (e.g., "Image 1")
   mimeType?: string;
+  imageIndex?: number;
 }
 
 /**

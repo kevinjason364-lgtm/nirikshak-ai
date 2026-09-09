@@ -435,8 +435,9 @@ export const ocrExtraction: ExtractionAdapter = {
 
     try {
       for (let i = 0; i < images.length; i++) { const img = images[i];
-        onProgress?.(`Analyzing image ${i + 1} of ${images.length} (${img.label.toUpperCase()})...`);
-        console.group(`[OCR Extraction] Processing: ${img.label.toUpperCase()}`);
+        const imgLabel = `Image ${img._internalIndex !== undefined ? img._internalIndex + 1 : i + 1}`;
+        onProgress?.(`Analyzing image ${i + 1} of ${images.length}...`);
+        console.group(`[OCR Extraction] Processing: ${imgLabel}`);
         console.log('[OCR Extraction] Image ID:', img.id);
         console.log('[OCR Extraction] Timestamp:', new Date(img.timestamp).toISOString());
 
@@ -484,7 +485,7 @@ export const ocrExtraction: ExtractionAdapter = {
         console.log('[OCR Extraction] Raw text preview:\n', preview);
 
         allResults.push({
-          label: img.label,
+          label: imgLabel,
           text: data.text,
           confidence: data.confidence || 0,
           wordCount,
@@ -641,9 +642,9 @@ export const hybridExtraction: ExtractionAdapter = {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            images: images.map(img => ({
+            images: images.map((img, i) => ({
               dataUrl: img.dataUrl,
-              label: img.label,
+              label: `Image ${img._internalIndex !== undefined ? img._internalIndex + 1 : i + 1}`,
             })),
           }),
         });
@@ -717,6 +718,17 @@ export const hybridExtraction: ExtractionAdapter = {
         countryOfOrigin: visionResult.candidate.countryOfOrigin || '',
         manufactureMonth: visionResult.candidate.manufactureMonth || '',
         manufactureYear: visionResult.candidate.manufactureYear || '',
+        bestBefore: {
+          applicable: Boolean(
+            visionResult.candidate.bestBeforeMonth ||
+            visionResult.candidate.bestBeforeYear ||
+            visionResult.candidate.bestBeforeText
+          ),
+          date: '',
+          month: visionResult.candidate.bestBeforeMonth || '',
+          year: visionResult.candidate.bestBeforeYear || '',
+          text: visionResult.candidate.bestBeforeText || '',
+        },
         manufacturer: {
           name: visionResult.candidate.manufacturerName || '',
           address: visionResult.candidate.manufacturerAddress || '',

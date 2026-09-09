@@ -153,12 +153,12 @@ async function runE2ETest() {
 
     capturedImages.push({
       id: item.label,
-      label: item.label,
       dataUrl,
       blobKey: item.label,
       timestamp: Date.now(),
       qualityScore: null,
       qualityWarnings: [],
+      _internalIndex: capturedImages.length,
     });
 
     visionInputs.push({
@@ -176,16 +176,18 @@ async function runE2ETest() {
 
   const rawOcrResults: Array<{ label: string; text: string; confidence: number }> = [];
 
-  for (const img of capturedImages) {
-    console.log(`[OCR-Raw] Running recognition on ${img.label}...`);
+  for (let i = 0; i < capturedImages.length; i++) {
+    const img = capturedImages[i];
+    const label = `Image ${i + 1}`;
+    console.log(`[OCR-Raw] Running recognition on ${label}...`);
     const { data } = await worker.recognize(img.dataUrl);
-    console.log(`[OCR-Raw] ${img.label.toUpperCase()} raw text length: ${data.text.length} chars, avg confidence: ${data.confidence?.toFixed(1)}`);
-    console.log(`[OCR-Raw] --- ${img.label.toUpperCase()} RAW TEXT PREVIEW ---`);
+    console.log(`[OCR-Raw] ${label.toUpperCase()} raw text length: ${data.text.length} chars, avg confidence: ${data.confidence?.toFixed(1)}`);
+    console.log(`[OCR-Raw] --- ${label.toUpperCase()} RAW TEXT PREVIEW ---`);
     console.log(data.text.trim().substring(0, 300) || '(no text detected)');
     console.log('-------------------------------------------');
 
     rawOcrResults.push({
-      label: img.label,
+      label,
       text: data.text,
       confidence: data.confidence || 0,
     });

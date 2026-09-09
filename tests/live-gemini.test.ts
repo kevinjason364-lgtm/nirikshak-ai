@@ -90,12 +90,12 @@ async function runLiveTest() {
 
     capturedImages.push({
       id: `img-${label}-${Date.now()}`,
-      label,
       dataUrl,
       blobKey: `blob-${label}`,
       timestamp: Date.now(),
       qualityScore: null,
       qualityWarnings: [],
+      _internalIndex: capturedImages.length,
     });
 
     visionInputs.push({
@@ -184,11 +184,13 @@ async function runLiveTest() {
   let ocrFullText = '';
   try {
     const worker = await createWorker('eng');
-    for (const img of capturedImages) {
+    for (let i = 0; i < capturedImages.length; i++) {
+      const img = capturedImages[i];
+      const label = `Image ${i + 1}`;
       const buf = Buffer.from(img.dataUrl.split(',')[1], 'base64');
       const ocrRes = await worker.recognize(buf);
-      console.log(`✓ OCR completed for ${img.label}: ${ocrRes.data.text.trim().split('\n').length} lines, confidence: ${ocrRes.data.confidence.toFixed(1)}%`);
-      ocrFullText += `\n=== ${img.label.toUpperCase()} LABEL ===\n` + ocrRes.data.text;
+      console.log(`✓ OCR completed for ${label}: ${ocrRes.data.text.trim().split('\n').length} lines, confidence: ${ocrRes.data.confidence.toFixed(1)}%`);
+      ocrFullText += `\n=== ${label.toUpperCase()} ===\n` + ocrRes.data.text;
     }
     await worker.terminate();
   } catch (ocrErr: any) {

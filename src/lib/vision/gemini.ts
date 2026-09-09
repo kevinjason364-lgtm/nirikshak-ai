@@ -16,20 +16,23 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const EXTRACTION_PROMPT = `You are an expert OCR and label information extraction assistant for Indian Legal Metrology (LMPC) compliance inspection.
 
 **YOUR TASK:**
-Extract ONLY factual visible text and information from the product label images provided (Front, Back, Side). You MUST:
-1. Read ALL text visible on the label regardless of orientation, rotation, sideways panels, or vertical printing
-2. Extract structured fields listed below from anywhere they appear across all provided images
-3. Return ONLY factual information you can directly see — never guess, infer, or hallucinate
-4. If a field is not visible or unreadable, leave it empty or null
-5. Do NOT make legal determinations or compliance assessments
+Extract ONLY factual visible text and information from the product label images provided. You MUST:
+1. Treat ALL uploaded images as photographs of the SAME packaged product
+2. Read ALL text visible on the label regardless of orientation, rotation, sideways panels, or vertical printing
+3. Search ACROSS ALL IMAGES to find required factual declarations
+4. Extract structured fields listed below from anywhere they appear across all provided images
+5. Return ONLY factual information you can directly see — never guess, infer, or hallucinate
+6. If a field is not visible or unreadable, leave it empty or null
+7. Do NOT make legal determinations or compliance assessments
+8. If the same field appears in multiple images, choose the clearest evidence and note any conflicts
 
 **CRITICAL EXTRACTION RULES:**
 - Product Name: Extract from the largest/most prominent product title text on the label
 - Brand / Marketer Name: Extract the brand name
 - Common / Generic Name: Extract if declared
-- MRP: Extract the exact numerical MRP value visible as a number. Do not hallucinate or guess. Do not include currency symbols.
+- MRP: Extract the exact numerical MRP value ONLY if unambiguous contextual anchors (e.g., MRP, M.R.P., Maximum Retail Price, ₹, Rs.) are visibly declared next to the price. NEVER extract count/quantity declarations (like "25N" or "25 N Tea Bags") as MRP. If no MRP is present or anchored, leave it null. Do not include currency symbols.
 - Tax Inclusion: Set mrpInclusiveTaxes to true if phrases like "INCL. OF ALL TAXES", "INCLUSIVE OF TAXES", or "(INCL. TAX)" are present
-- Net Quantity: Extract the actual numerical quantity and unit visible on the package (e.g., netQuantity: 500, unit: "g", or netQuantity: 10, unit: "N")
+- Net Quantity: Extract the actual numerical quantity and unit visible on the package (e.g., netQuantity: 500, unit: "g", or netQuantity: 10, unit: "N"). Count declarations like "25 N" go here, not in MRP.
 - Net Contents / Weight: If weight or count is present, normalize standard units (g, kg, ml, l, pcs, N, etc.)
 - Manufacturer: Extract the full company name and full address as printed
 - Importer / Marketer: Extract company name and full address
@@ -58,6 +61,7 @@ Return a single valid JSON object with these fields (all optional, omit or set t
   "manufactureYear": "string (YYYY)",
   "bestBeforeMonth": "string (MM)",
   "bestBeforeYear": "string (YYYY)",
+  "bestBeforeText": "string (e.g. Best Before 12 Months from Packaging)",
   "consumerCareName": "string",
   "consumerCareAddress": "string",
   "consumerCarePhone": "string",
@@ -93,11 +97,12 @@ export class GeminiVisionProvider implements VisionProvider {
       ];
 
       // Add images
-      for (const img of images) {
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
         // Extract base64 data and mime type
         const matches = img.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
         if (!matches) {
-          console.warn('[Gemini Vision] Invalid data URL format for:', img.label);
+          console.warn('[Gemini Vision] Invalid data URL format for image', i + 1);
           continue;
         }
 
@@ -105,7 +110,7 @@ export class GeminiVisionProvider implements VisionProvider {
         const base64Data = matches[2];
 
         parts.push({
-          text: `\n\n=== ${img.label.toUpperCase()} LABEL ===`
+          text: `\n\n=== IMAGE ${i + 1} OF ${images.length} ===`
         });
 
         parts.push({

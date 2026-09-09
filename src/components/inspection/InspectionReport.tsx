@@ -122,15 +122,15 @@ export function InspectionReportView({ report, onBack, onNewInspection }: Inspec
             Captured images for reference only. No automated image interpretation was performed.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {report.images.map((img: CapturedImage) => (
+            {report.images.map((img: CapturedImage, idx: number) => (
               <div key={img.id} className="rounded-lg overflow-hidden border">
                 <img
                   src={img.dataUrl}
-                  alt={`Product label — ${img.label}`}
+                  alt={`Product label — Image ${idx + 1}`}
                   className="w-full aspect-[4/3] object-cover"
                 />
-                <div className="px-2 py-1 bg-gray-50 text-xs text-gray-600 text-center capitalize">
-                  {img.label.replace('-', ' / ')}
+                <div className="px-2 py-1 bg-gray-50 text-xs text-gray-600 text-center font-medium">
+                  Image #{idx + 1}
                 </div>
               </div>
             ))}

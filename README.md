@@ -74,6 +74,22 @@ nirikshak-ai/
 
 ---
 
+## Development Log
+
+### Phase 2 (2026-09-09)
+- Implemented field-specific strict validation engine for LMPC fields (MRP, Net Qty, Dates, etc.) to reject garbage OCR fragments.
+- Implemented qualitative confidence tiers (High/Medium/Low/Needs Review) for hybrid consensus merging.
+- Tracked spatial provenance (`sourceSide`) across multi-side label extraction.
+- Developed Development Diagnostics Panel and verified multi-side merging logic.
+- Verified stable consensus merging and resolved MRP misclassification of quantity counts.
+- Implemented automatic factual extraction for automated Rule 3 applicability assessment.
+- Verified everything with comprehensive OCR parser and Rule 3 test suite (`tests/mrp-rule3-verification.test.ts`).
+
+### Phase 1 (2026-08-15)
+- Initial prototype stability and verified foundation.
+
+---
+
 ## Extraction Subsystems
 
 Nirikshak AI implements a multi-tier extraction architecture designed for maximum accuracy, resilience against low-quality packaging images, and strict privacy/offline support.
@@ -316,6 +332,32 @@ Each entry should include:
     - **Test 7 (Post-Extraction Lock Release):** **PASS** — Initiated fresh extraction after previous run completed. Lock released cleanly in `finally` block; extraction executed normally (`productName="GREEN TEA LEMON"`).
     - **Test 8 (429/503 Error Handling):** **NOT PERFORMED (Live Runtime)** / **VERIFIED (Code Review)** — Deliberately omitted live spamming of Gemini API quotas. Code audit of `src/lib/vision/gemini.ts` and `src/app/api/extract/route.ts` confirms: HTTP 429 flagged as rate-limit with 0 retries; HTTP 503 limited to 1 retry (1000ms delay); both return `{ success: false, fallback: true }` enabling graceful client-side local OCR fallback.
     - **Runtime Summary:** 7 PASS, 0 FAIL, 1 NOT PERFORMED (0 browser console errors, 7 total POST calls).
+- **Known limitations:**
+  - Gemini API free tier remains subject to standard Google quotas (15 RPM / 1M TPM / 1,500 RPD); graceful local OCR fallback is automatically triggered when quotas are reached.
+
+---
+
+### 2026-09-09 — Phase 3: Performance, UX, Error Handling & Final Documentation
+- **Status:** Implemented & Verified
+- **What changed:**
+  1. **Adaptive Image Preprocessing (`src/lib/ocr-preprocessing.ts`):** Optimized client-side canvas preprocessing with 1.5% percentile contrast clipping and 0.9 gamma stretch for mobile packaging photos, preventing fine-print blowout while preserving non-destructive originals.
+  2. **Tesseract Worker Lifecycle Management (`src/lib/extraction.ts`):** Implemented a shared singleton Tesseract worker with warm reuse across multi-image batches and clean lifecycle termination utilities (`terminateSharedWorker`).
+  3. **Step-by-Step Multi-Image Extraction Progress (`src/types/index.ts`, `src/lib/extraction.ts`, `src/app/inspect/page.tsx`):** Added a progress callback interface piping granular step status messages (`Analyzing FRONT label...`, `Analyzing BACK label...`, `Merging multi-side evidence...`) directly to the user interface.
+  4. **Resilient Vision AI Timeouts (`src/lib/vision/gemini.ts`):** Added 25-second `AbortSignal` timeout handling to Vision AI fetch requests to prevent hanging promises during network degradation.
+  5. **Complete Documentation & Architecture Guide (`README.md`):** Documented the full end-to-end pipeline, spatial multi-side provenance, qualitative confidence hierarchy, privacy/local storage policies, diagnostics usage, and LMPC compliance disclaimers.
+- **Why:** Provide a polished, fast, production-grade inspection workflow with multi-side label comprehension, real-time feedback, and rock-solid error handling.
+- **Files affected:**
+  - `src/lib/ocr-preprocessing.ts`
+  - `src/lib/extraction.ts`
+  - `src/lib/vision/gemini.ts`
+  - `src/app/inspect/page.tsx`
+  - `src/types/index.ts`
+  - `README.md`
+- **Verification performed:**
+  - `npm run typecheck` — **PASSED** (0 errors)
+  - `npm run lint` — **PASSED** (0 warnings/errors)
+  - `npm run build` — **PASSED** (All 6 Next.js static pages compiled)
+  - All unit & integration tests (`phase2-validation`, `phase2-multiside`, `phase2-disagreement`) — **PASSED** (100% pass rate)
 - **Known limitations:**
   - Gemini API free tier remains subject to standard Google quotas (15 RPM / 1M TPM / 1,500 RPD); graceful local OCR fallback is automatically triggered when quotas are reached.
 
