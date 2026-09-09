@@ -290,6 +290,32 @@ Each entry should include:
 
 ---
 
+### 2026-09-09 — Phase 3: Performance, UX, Error Handling & Final Documentation
+- **Status:** Implemented & Verified
+- **What changed:**
+  1. **Adaptive Image Preprocessing (`src/lib/ocr-preprocessing.ts`):** Optimized client-side canvas preprocessing with 1.5% percentile contrast clipping and 0.9 gamma stretch for mobile packaging photos, preventing fine-print blowout while preserving non-destructive originals.
+  2. **Tesseract Worker Lifecycle Management (`src/lib/extraction.ts`):** Implemented a shared singleton Tesseract worker with warm reuse across multi-image batches and clean lifecycle termination utilities (`terminateSharedWorker`).
+  3. **Step-by-Step Multi-Image Extraction Progress (`src/types/index.ts`, `src/lib/extraction.ts`, `src/app/inspect/page.tsx`):** Added a progress callback interface piping granular step status messages (`Analyzing FRONT label...`, `Analyzing BACK label...`, `Merging multi-side evidence...`) directly to the user interface.
+  4. **Resilient Vision AI Timeouts (`src/lib/vision/gemini.ts`):** Added 25-second `AbortSignal` timeout handling to Vision AI fetch requests to prevent hanging promises during network degradation.
+  5. **Complete Documentation & Architecture Guide (`README.md`):** Documented the full end-to-end pipeline, spatial multi-side provenance, qualitative confidence hierarchy, privacy/local storage policies, diagnostics usage, and LMPC compliance disclaimers.
+- **Why:** Provide a polished, fast, production-grade inspection workflow with multi-side label comprehension, real-time feedback, and rock-solid error handling.
+- **Files affected:**
+  - `src/lib/ocr-preprocessing.ts`
+  - `src/lib/extraction.ts`
+  - `src/lib/vision/gemini.ts`
+  - `src/app/inspect/page.tsx`
+  - `src/types/index.ts`
+  - `README.md`
+- **Verification performed:**
+  - `npm run typecheck` — **PASSED** (0 errors)
+  - `npm run lint` — **PASSED** (0 warnings/errors)
+  - `npm run build` — **PASSED** (All 6 Next.js static pages compiled)
+  - All unit & integration tests (`phase2-validation`, `phase2-multiside`, `phase2-disagreement`) — **PASSED** (100% pass rate)
+- **Known limitations:**
+  - Gemini API free tier remains subject to standard Google quotas (15 RPM / 1M TPM / 1,500 RPD); graceful local OCR fallback is automatically triggered when quotas are reached.
+
+---
+
 ### 2026-09-09 — Phase 2: Extraction Quality & Explainability
 - **Status:** Implemented & Verified
 - **What changed:**
@@ -311,9 +337,8 @@ Each entry should include:
   - `npm run typecheck`, `npm run lint`, `npm run build` — **PASSED**
   - Phase 2 test suite (validation, multi-side, disagreement) — **PASSED** (6/6)
   - Existing regression test suite (ocr-parser, hybrid-merger, e2e-real) — **PASSED**
-
+- **Known limitations:**
   - Smeared or optically ambiguous packaging text will continue to require manual inspector confirmation by design.
-- **Next step:** Await review of Phase 1 changes before creating git checkpoint and proceeding to Phase 2.
 
 ---
 

@@ -89,7 +89,8 @@ function upscaleIfNeeded(canvas: HTMLCanvasElement): { upscaled: boolean; factor
 }
 
 /**
- * Convert to grayscale with contrast enhancement
+ * Convert to grayscale with adaptive contrast enhancement and percentile stretching
+ * Specially tuned for mobile packaging photographs (foil, glossy labels, varying shadows)
  */
 function grayscaleWithContrast(canvas: HTMLCanvasElement): HTMLCanvasElement {
   const ctx = canvas.getContext('2d');
@@ -97,25 +98,55 @@ function grayscaleWithContrast(canvas: HTMLCanvasElement): HTMLCanvasElement {
 
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
+  const numPixels = data.length / 4;
 
-  // Convert to grayscale
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    data[i] = gray;
-    data[i + 1] = gray;
-    data[i + 2] = gray;
+  const grayValues = new Uint8ClampedArray(numPixels);
+  const histogram = new Array(256).fill(0);
+
+  // 1. Convert to grayscale using standard luminance weights
+  for (let i = 0; i < numPixels; i++) {
+    const idx = i * 4;
+    const gray = Math.round(0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
+    grayValues[i] = gray;
+    histogram[gray]++;
   }
 
-  // Enhance contrast using CLAHE-like approach (simplified)
-  const mean = data.reduce((sum, v, i) => (i % 4 === 0 ? sum + v : sum), 0) / (data.length / 4);
-  const contrast = 1.5; // Increase contrast by 50%
+  // 2. Percentile clipping for robust adaptive contrast (ignore top/bottom 1.5% outliers like specular glare)
+  const clipCount = Math.floor(numPixels * 0.015);
+  let pLow = 0;
+  let countLow = 0;
+  for (let i = 0; i < 256; i++) {
+    countLow += histogram[i];
+    if (countLow >= clipCount) {
+      pLow = i;
+      break;
+    }
+  }
 
-  for (let i = 0; i < data.length; i += 4) {
-    const adjusted = mean + (data[i] - mean) * contrast;
-    const clamped = Math.max(0, Math.min(255, adjusted));
-    data[i] = clamped;
-    data[i + 1] = clamped;
-    data[i + 2] = clamped;
+  let pHigh = 255;
+  let countHigh = 0;
+  for (let i = 255; i >= 0; i--) {
+    countHigh += histogram[i];
+    if (countHigh >= clipCount) {
+      pHigh = i;
+      break;
+    }
+  }
+
+  // Avoid division by zero if image has zero dynamic range
+  const range = Math.max(pHigh - pLow, 20);
+
+  // 3. Stretch dynamic range and apply gentle gamma curve (gamma = 0.9) to reveal fine print details
+  const gamma = 0.9;
+  for (let i = 0; i < numPixels; i++) {
+    const idx = i * 4;
+    const normalized = Math.max(0, Math.min(1, (grayValues[i] - pLow) / range));
+    const gammaCorrected = Math.pow(normalized, gamma);
+    const finalVal = Math.round(gammaCorrected * 255);
+
+    data[idx] = finalVal;
+    data[idx + 1] = finalVal;
+    data[idx + 2] = finalVal;
   }
 
   ctx.putImageData(imageData, 0, 0);

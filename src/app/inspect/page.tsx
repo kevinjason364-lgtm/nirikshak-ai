@@ -102,7 +102,9 @@ export default function InspectPage() {
 
         // Use hybrid extraction if Vision AI is available, otherwise OCR-only
         const extractionAdapter = visionAIAvailable ? hybridExtraction : ocrExtraction;
-        const result: any = await extractionAdapter.extract(images);
+        const result: any = await extractionAdapter.extract(images, (msg: string) => {
+          setExtractionStatusMessage(msg);
+        });
         console.log('[Inspect Page] Extraction result:', result);
 
         setExtractionDiagnostics(result.diagnostics || null);

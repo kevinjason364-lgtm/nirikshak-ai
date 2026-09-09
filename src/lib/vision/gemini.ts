@@ -145,6 +145,7 @@ export class GeminiVisionProvider implements VisionProvider {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(25000),
         });
 
         if (response.ok) break;

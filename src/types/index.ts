@@ -228,7 +228,10 @@ export interface ExtractionResult {
 export interface ExtractionAdapter {
   name: string;
   description: string;
-  extract(images: CapturedImage[]): Promise<ExtractionResult>;
+  extract(
+    images: CapturedImage[],
+    onProgress?: (statusMessage: string) => void
+  ): Promise<ExtractionResult>;
 }
 
 export function getEmptyFormData(): InspectionFormData {

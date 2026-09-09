@@ -42,6 +42,40 @@ import { createWorker } from 'tesseract.js';
 import { parseOcrText } from './ocr-parser';
 import { preprocessImage } from './ocr-preprocessing';
 
+// Shared Tesseract worker to avoid cold-start delays across image analyses
+let sharedWorker: any = null;
+
+async function getSharedWorker(onProgress?: (msg: string) => void) {
+  if (!sharedWorker) {
+    onProgress?.('Initializing OCR engine...');
+    sharedWorker = await createWorker('eng', 1, {
+      logger: (m: any) => {
+        if (m.status === 'loading tesseract core' || m.status === 'initializing tesseract') {
+          onProgress?.('Loading OCR core...');
+        } else if (m.status === 'loading language traineddata') {
+          onProgress?.('Loading language models...');
+        } else if (m.status === 'initializing api') {
+          onProgress?.('Initializing OCR API...');
+        } else if (m.status === 'recognizing text') {
+          // Prevent spammy progress events, only if we pass a distinct parsing string later
+        }
+      },
+    });
+  }
+  return sharedWorker;
+}
+
+export async function terminateSharedWorker() {
+  if (sharedWorker) {
+    try {
+      await sharedWorker.terminate();
+    } catch (e) {
+      console.warn('Failed to terminate shared worker', e);
+    }
+    sharedWorker = null;
+  }
+}
+
 /** Manual extraction — inspector fills in all fields */
 export const manualExtraction: ExtractionAdapter = {
   name: 'manual',
@@ -357,7 +391,7 @@ export const demoExtraction: ExtractionAdapter = {
 export const ocrExtraction: ExtractionAdapter = {
   name: 'ocr',
   description: 'Client-side OCR using Tesseract.js with heuristic field parsing',
-  async extract(images: CapturedImage[]): Promise<ExtractionResult> {
+  async extract(images: CapturedImage[], onProgress?: (msg: string) => void): Promise<ExtractionResult> {
     console.group('[OCR Extraction] ========== OCR PIPELINE START ==========');
     console.log('[OCR Extraction] Images to process:', images.length);
 
@@ -374,21 +408,9 @@ export const ocrExtraction: ExtractionAdapter = {
 
     let worker;
     try {
-      console.log('[OCR Extraction] Creating Tesseract worker...');
-      worker = await createWorker('eng', 1, {
-        logger: (m: any) => {
-          if (m.status === 'loading tesseract core') {
-            console.log('[OCR Extraction] Loading Tesseract core...');
-          } else if (m.status === 'initializing tesseract') {
-            console.log('[OCR Extraction] Initializing Tesseract...');
-          } else if (m.status === 'loading language traineddata') {
-            console.log('[OCR Extraction] Loading English language data...');
-          } else if (m.status === 'initializing api') {
-            console.log('[OCR Extraction] Initializing OCR API...');
-          }
-        },
-      });
-      console.log('[OCR Extraction] ✓ Worker initialized successfully');
+      console.log('[OCR Extraction] Getting Tesseract worker...');
+      worker = await getSharedWorker(onProgress);
+      console.log('[OCR Extraction] ✓ Worker ready');
     } catch (workerError: any) {
       console.error('[OCR Extraction] ✗ Worker creation failed:', workerError);
       console.groupEnd();
@@ -413,6 +435,7 @@ export const ocrExtraction: ExtractionAdapter = {
 
     try {
       for (const img of images) {
+        onProgress?.(`Analyzing ${img.label.toUpperCase()} label...`);
         console.group(`[OCR Extraction] Processing: ${img.label.toUpperCase()}`);
         console.log('[OCR Extraction] Image ID:', img.id);
         console.log('[OCR Extraction] Timestamp:', new Date(img.timestamp).toISOString());
@@ -473,9 +496,8 @@ export const ocrExtraction: ExtractionAdapter = {
         console.groupEnd();
       }
 
-      await worker.terminate();
-      worker = null;
-      console.log('[OCR Extraction] ✓ Worker terminated');
+      // NO LONGER TERMINATING HERE: Reuse the worker for next extraction
+      console.log('[OCR Extraction] ✓ Recognition complete for all images, leaving worker active');
 
       // Combine text from all images
       const combinedText = allResults.map(r => `=== ${r.label.toUpperCase()} ===\n${r.text}`).join('\n\n');
@@ -539,9 +561,9 @@ export const ocrExtraction: ExtractionAdapter = {
 
     } catch (error: any) {
       console.error('[OCR Extraction] ✗ OCR recognition failed:', error);
-      if (worker) {
-        try { await worker.terminate(); } catch {}
-      }
+      // If a specific image recognition fails, we might need to reset.
+      // For now, let's just log and return error status.
+      // We don't terminate here so shared worker survives if possible.
       console.groupEnd();
       return {
         formData: getEmptyFormData(),
