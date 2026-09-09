@@ -17,6 +17,7 @@ export interface OCRField {
   confidenceScore: number; // 0-100
   source: string; // What text was matched
   sourceLine?: string; // The line it came from
+  sourceSide?: 'front' | 'back' | 'side-other' | 'unknown';
 }
 
 export interface ParsedOcrResult {
@@ -36,6 +37,7 @@ interface ExtractionCandidate {
   value: string | number;
   confidence: number;
   source: string;
+  sourceSide?: 'front' | 'back' | 'side-other' | 'unknown';
 }
 
 // Validation functions to prevent garbage data
@@ -145,18 +147,38 @@ function getConfidenceLevel(score: number): 'high' | 'medium' | 'low' {
   return 'low';
 }
 
+function findSourceSide(text: string, matchIndex: number): 'front' | 'back' | 'side-other' | 'unknown' {
+  if (matchIndex < 0) return 'unknown';
+  const frontIdx = text.lastIndexOf('=== FRONT ===', matchIndex);
+  const backIdx = text.lastIndexOf('=== BACK ===', matchIndex);
+  const sideIdx = text.lastIndexOf('=== SIDE', matchIndex);
+
+  const maxIdx = Math.max(frontIdx, backIdx, sideIdx);
+  if (maxIdx === -1) return 'unknown';
+  if (maxIdx === frontIdx) return 'front';
+  if (maxIdx === backIdx) return 'back';
+  if (maxIdx === sideIdx) return 'side-other';
+  return 'unknown';
+}
+
 /**
  * Extract product name with contextual heuristics
  */
-function extractProductName(text: string, tesseractConfidence: number): ExtractionCandidate | null {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+function extractProductName(rawText: string, tesseractConfidence: number): ExtractionCandidate | null {
+  const lines = rawText.split('\n').map(l => l.trim());
+  let currentSide: 'front' | 'back' | 'side-other' | 'unknown' = 'unknown';
 
   // 1. First look for explicit anchors like "Product Name:", "Commodity:", "Item:"
   const explicitAnchors = [
     /(?:product\s*name|commodity|product|item\s*name)\s*[:.-]?\s*([^\n]+)/i,
   ];
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('=== FRONT ===')) { currentSide = 'front'; continue; }
+    if (line.includes('=== BACK ===')) { currentSide = 'back'; continue; }
+    if (line.includes('=== SIDE')) { currentSide = 'side-other'; continue; }
+
     for (const anchor of explicitAnchors) {
       const match = line.match(anchor);
       if (match && match[1]) {
@@ -166,6 +188,7 @@ function extractProductName(text: string, tesseractConfidence: number): Extracti
             value: candidate,
             confidence: Math.round(Math.min(90, tesseractConfidence * 0.95)),
             source: `Explicit anchor: "${line}"`,
+            sourceSide: currentSide
           };
         }
       }
@@ -174,36 +197,23 @@ function extractProductName(text: string, tesseractConfidence: number): Extracti
 
   // 2. Look for the prominent title line near top of Front label
   // Find lines in the front section before other metadata declarations
-  const candidateLines: string[] = [];
-  let inFrontSection = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('=== FRONT ===')) { currentSide = 'front'; continue; }
+    if (line.includes('=== BACK ===')) { currentSide = 'back'; continue; }
+    if (line.includes('=== SIDE')) { currentSide = 'side-other'; continue; }
 
-  for (const line of lines) {
-    if (line.includes('=== FRONT ===')) {
-      inFrontSection = true;
-      continue;
-    }
-    if (line.includes('=== BACK ===') || line.includes('=== SIDE')) {
-      inFrontSection = false;
-    }
+    // Only search in Front or Unknown
+    if (currentSide !== 'front' && currentSide !== 'unknown') continue;
 
     if (validators.productName(line)) {
-      if (inFrontSection) {
-        candidateLines.push(line); // Prioritize front lines (first seen first)
-      } else {
-        candidateLines.push(line);
-      }
+      return {
+        value: line,
+        confidence: Math.round(Math.min(80, tesseractConfidence * 0.85)),
+        source: `Prominent title line: "${line}"`,
+        sourceSide: currentSide
+      };
     }
-  }
-
-  if (candidateLines.length > 0) {
-    // Pick the best candidate (clean uppercase/titlecase words)
-    // Find the first line from the front section that looks good
-    const best = candidateLines[0];
-    return {
-      value: best,
-      confidence: Math.round(Math.min(80, tesseractConfidence * 0.85)),
-      source: `Prominent title line: "${best}"`,
-    };
   }
 
   return null;
@@ -216,11 +226,12 @@ function extractMRP(text: string, tesseractConfidence: number): ExtractionCandid
   const mrpRegex = /(?:M\.?R\.?P\.?|MRP|PRICE|MAXIMUM\s*RETAIL\s*PRICE)\s*[:.\-]?\s*(?:RS\.?|INR|₹)?\s*([0-9]+(?:[.,][0-9]{1,2})?)/i;
 
   const match = text.match(mrpRegex);
-  if (match && match[1]) {
+  if (match && match[1] && match.index !== undefined) {
     const val = parseFloat(match[1].replace(',', '.'));
     if (validators.mrp(val)) {
       const confidence = Math.round(Math.min(90, tesseractConfidence * 0.95));
-      return { value: val, confidence, source: match[0] };
+      const sourceSide = findSourceSide(text, match.index);
+      return { value: val, confidence, source: match[0], sourceSide };
     }
   }
 
@@ -230,8 +241,13 @@ function extractMRP(text: string, tesseractConfidence: number): ExtractionCandid
 /**
  * Extract tax inclusion declaration
  */
-function extractTaxInclusion(text: string): boolean {
-  return /(?:INCL(?:USIVE)?\.?\s*OF\s*(?:ALL\s*)?TAXES|INCL(?:USIVE)?\.?\s*TAXES|TAXES?\s*INCLUDED|\(INCL\.\s*OF\s*ALL\s*TAXES\))/i.test(text);
+function extractTaxInclusion(text: string): ExtractionCandidate | null {
+  const match = text.match(/(?:INCL(?:USIVE)?\.?\s*OF\s*(?:ALL\s*)?TAXES|INCL(?:USIVE)?\.?\s*TAXES|TAXES?\s*INCLUDED|\(INCL\.\s*OF\s*ALL\s*TAXES\))/i);
+  if (match && match.index !== undefined) {
+    const sourceSide = findSourceSide(text, match.index);
+    return { value: true as any, confidence: 95, source: match[0], sourceSide };
+  }
+  return null;
 }
 
 /**
@@ -244,7 +260,7 @@ function extractNetQuantity(
   const qtyRegex = /(?:NET\s*(?:QTY|QUANTITY|WT|WEIGHT|CONTENT|CONTENTS)?\s*[:.\-]?\s*)?([0-9]+(?:[.,][0-9]+)?)\s*(g|gm|gms|grams|kg|kgs|kilograms|ml|millilitres|l|ltr|ltrs|litres|litre|pcs|pieces|units|nos|n(?:\s+[a-z\s]{1,10})?|tea\s*bags|bags|sachets|packs)\b/i;
 
   const match = text.match(qtyRegex);
-  if (match && match[1] && match[2]) {
+  if (match && match[1] && match[2] && match.index !== undefined) {
     const val = parseFloat(match[1].replace(',', '.'));
     if (validators.quantity(val)) {
       let unit = match[2].toLowerCase();
@@ -255,9 +271,10 @@ function extractNetQuantity(
       if (['ltr', 'ltrs', 'litres', 'litre'].includes(unit)) unit = 'L';
 
       const confidence = Math.round(Math.min(85, tesseractConfidence * 0.9));
+      const sourceSide = findSourceSide(text, match.index);
       return {
-        qty: { value: val, confidence, source: match[0] },
-        unit: { value: unit, confidence, source: `Unit: ${unit}` },
+        qty: { value: val, confidence, source: match[0], sourceSide },
+        unit: { value: unit, confidence, source: `Unit: ${unit}`, sourceSide },
       };
     }
   }
@@ -272,11 +289,12 @@ function extractManufacturer(text: string, tesseractConfidence: number): Extract
   const mfgRegex = /(?:MANUFACTURED|MFD|PACKED|PACKER|MARKETED)\s*(?:BY|&?\s*MARKETED\s*BY)?\s*[:.\-]?\s*([^\n]+(?:\n[^\n]+){0,2})/i;
   const match = text.match(mfgRegex);
 
-  if (match && match[1]) {
+  if (match && match[1] && match.index !== undefined) {
     const lines = match[1].split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length > 0 && validators.manufacturerName(lines[0])) {
       const confidence = Math.round(Math.min(80, tesseractConfidence * 0.85));
-      return { value: lines[0], confidence, source: lines[0] };
+      const sourceSide = findSourceSide(text, match.index);
+      return { value: lines[0], confidence, source: lines[0], sourceSide };
     }
   }
 
@@ -290,11 +308,12 @@ function extractImporter(text: string, tesseractConfidence: number): ExtractionC
   const impRegex = /(?:IMPORTED|IMPORTER)\s*(?:BY)?\s*[:.\-]?\s*([^\n]+(?:\n[^\n]+){0,2})/i;
   const match = text.match(impRegex);
 
-  if (match && match[1]) {
+  if (match && match[1] && match.index !== undefined) {
     const lines = match[1].split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length > 0 && validators.manufacturerName(lines[0])) {
       const confidence = Math.round(Math.min(80, tesseractConfidence * 0.85));
-      return { value: lines[0], confidence, source: lines[0] };
+      const sourceSide = findSourceSide(text, match.index);
+      return { value: lines[0], confidence, source: lines[0], sourceSide };
     }
   }
 
@@ -308,11 +327,12 @@ function extractCountryOfOrigin(text: string, tesseractConfidence: number): Extr
   const originRegex = /(?:COUNTRY\s*OF\s*ORIGIN|MADE\s*IN|PRODUCED\s*IN)\s*[:.\-]?\s*([A-Za-z\s]+)/i;
   const match = text.match(originRegex);
 
-  if (match && match[1]) {
+  if (match && match[1] && match.index !== undefined) {
     const country = match[1].trim().split('\n')[0];
     if (country.length > 2 && /^[a-zA-Z\s]+$/.test(country)) {
       const confidence = Math.round(Math.min(85, tesseractConfidence * 0.9));
-      return { value: country, confidence, source: match[0] };
+      const sourceSide = findSourceSide(text, match.index);
+      return { value: country, confidence, source: match[0], sourceSide };
     }
   }
 
@@ -327,15 +347,16 @@ function extractDates(text: string, tesseractConfidence: number): {
   mfgYear?: string;
   expMonth?: string;
   expYear?: string;
+  sourceSide?: 'front' | 'back' | 'side-other' | 'unknown';
 } {
-  const dates: { mfgMonth?: string; mfgYear?: string; expMonth?: string; expYear?: string } = {};
+  const dates: { mfgMonth?: string; mfgYear?: string; expMonth?: string; expYear?: string; sourceSide?: 'front' | 'back' | 'side-other' | 'unknown' } = {};
 
   const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
   // Manufacture Date
   const mfgRegex = /(?:MFG|MFD|MANUFACTURED|PACKED|PKD)\.?\s*(?:DATE)?\s*[:.\-]?\s*(?:([0-9]{1,2})[\/\.-])?([0-9]{1,2}|[A-Za-z]{3,9})[\/\.-]([0-9]{2,4})/i;
   const mfgMatch = text.match(mfgRegex);
-  if (mfgMatch) {
+  if (mfgMatch && mfgMatch.index !== undefined) {
     let month = mfgMatch[2];
     const mIdx = monthNames.findIndex(m => month.toLowerCase().startsWith(m));
     if (mIdx !== -1) {
@@ -349,12 +370,13 @@ function extractDates(text: string, tesseractConfidence: number): {
 
     dates.mfgMonth = month;
     dates.mfgYear = year;
+    dates.sourceSide = findSourceSide(text, mfgMatch.index);
   }
 
   // Best Before / Expiry
   const expRegex = /(?:EXP(?:IRY)?|USE\s*BY|BEST\s*BEFORE)\.?\s*(?:DATE)?\s*[:.\-]?\s*(?:([0-9]{1,2})[\/\.-])?([0-9]{1,2}|[A-Za-z]{3,9})[\/\.-]([0-9]{2,4})/i;
   const expMatch = text.match(expRegex);
-  if (expMatch) {
+  if (expMatch && expMatch.index !== undefined) {
     let month = expMatch[2];
     const mIdx = monthNames.findIndex(m => month.toLowerCase().startsWith(m));
     if (mIdx !== -1) {
@@ -368,6 +390,9 @@ function extractDates(text: string, tesseractConfidence: number): {
 
     dates.expMonth = month;
     dates.expYear = year;
+    if (!dates.sourceSide) {
+      dates.sourceSide = findSourceSide(text, expMatch.index);
+    }
   }
 
   return dates;
@@ -380,9 +405,10 @@ function extractPhone(text: string, tesseractConfidence: number): ExtractionCand
   const phoneRegex = /(?:TOLL\s*FREE|HELPLINE|CALL|TEL|PHONE|CARE|CONTACT|CUSTOMER\s*CARE|CONSUMER\s*CARE|PH\.?)\.?\s*[:.\-]?\s*([0-9\-\s\(\)]{8,18})/i;
   const match = text.match(phoneRegex);
 
-  if (match && match[1] && validators.phone(match[1])) {
+  if (match && match[1] && match.index !== undefined && validators.phone(match[1])) {
     const confidence = Math.round(Math.min(85, tesseractConfidence * 0.9));
-    return { value: match[1].trim(), confidence, source: match[0] };
+    const sourceSide = findSourceSide(text, match.index);
+    return { value: match[1].trim(), confidence, source: match[0], sourceSide };
   }
 
   return null;
@@ -395,9 +421,10 @@ function extractEmail(text: string, tesseractConfidence: number): ExtractionCand
   const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i;
   const match = text.match(emailRegex);
 
-  if (match && match[1] && validators.email(match[1])) {
+  if (match && match[1] && match.index !== undefined && validators.email(match[1])) {
     const confidence = Math.round(Math.min(95, tesseractConfidence * 0.98));
-    return { value: match[1], confidence, source: match[1] };
+    const sourceSide = findSourceSide(text, match.index);
+    return { value: match[1], confidence, source: match[1], sourceSide };
   }
 
   return null;
@@ -410,9 +437,10 @@ function extractBatchLot(text: string, tesseractConfidence: number): ExtractionC
   const batchRegex = /(?:BATCH|LOT)\.?\s*(?:NO\.?|NUMBER)?\s*[:.\-]?\s*([A-Za-z0-9\/-]+)/i;
   const match = text.match(batchRegex);
 
-  if (match && match[1] && match[1].length >= 3) {
+  if (match && match[1] && match[1].length >= 3 && match.index !== undefined) {
     const confidence = Math.round(Math.min(85, tesseractConfidence * 0.9));
-    return { value: match[1].trim(), confidence, source: match[0] };
+    const sourceSide = findSourceSide(text, match.index);
+    return { value: match[1].trim(), confidence, source: match[0], sourceSide };
   }
 
   return null;
@@ -425,9 +453,10 @@ function extractBarcode(text: string, tesseractConfidence: number): ExtractionCa
   const barcodeRegex = /\b([0-9]{12,13})\b/;
   const match = text.match(barcodeRegex);
 
-  if (match && match[1] && validators.barcode(match[1])) {
+  if (match && match[1] && match.index !== undefined && validators.barcode(match[1])) {
     const confidence = Math.round(Math.min(80, tesseractConfidence * 0.9));
-    return { value: match[1], confidence, source: match[1] };
+    const sourceSide = findSourceSide(text, match.index);
+    return { value: match[1], confidence, source: match[1], sourceSide };
   }
 
   return null;
@@ -440,9 +469,10 @@ function extractFSSAI(text: string, tesseractConfidence: number): ExtractionCand
   const fssaiRegex = /(?:FSSAI|LICENSE|LIC\.?|LIC\.?\s*NO\.?|FSSAI\s*LIC\.?\s*NO\.?)\s*[:.\-]?\s*([0-9]{14})/i;
   const match = text.match(fssaiRegex);
 
-  if (match && match[1] && validators.fssai(match[1])) {
+  if (match && match[1] && match.index !== undefined && validators.fssai(match[1])) {
     const confidence = Math.round(Math.min(95, tesseractConfidence * 0.98));
-    return { value: match[1], confidence, source: match[1] };
+    const sourceSide = findSourceSide(text, match.index);
+    return { value: match[1], confidence, source: match[1], sourceSide };
   }
 
   return null;
@@ -470,7 +500,9 @@ function extractBrand(text: string, tesseractConfidence: number): ExtractionCand
       // Must not match standard anchors
       if (!/\b(?:product|price|mrp|weight|qty|net|mfg|exp|batch)\b/i.test(line)) {
         const confidence = Math.round(Math.min(75, tesseractConfidence * 0.8));
-        return { value: line, confidence, source: `Brand candidate: "${line}"` };
+        const idx = text.indexOf(line);
+        const sourceSide = idx >= 0 ? findSourceSide(text, idx) : (frontIndex !== -1 ? 'front' : 'unknown');
+        return { value: line, confidence, source: `Brand candidate: "${line}"`, sourceSide };
       }
     }
   }
@@ -505,6 +537,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(productNameCandidate.confidence),
       confidenceScore: productNameCandidate.confidence,
       source: productNameCandidate.source,
+      sourceSide: productNameCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -524,6 +557,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(brandCandidate.confidence),
       confidenceScore: brandCandidate.confidence,
       source: brandCandidate.source,
+      sourceSide: brandCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -543,6 +577,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(mrpCandidate.confidence),
       confidenceScore: mrpCandidate.confidence,
       source: mrpCandidate.source,
+      sourceSide: mrpCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -551,19 +586,21 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
   }
 
   // 3. Tax Inclusion
-  if (extractTaxInclusion(text)) {
+  const taxCandidate = extractTaxInclusion(text);
+  if (taxCandidate) {
     if (!formData.mrp) formData.mrp = { value: null, inclusiveOfAllTaxes: null, exemptionDeclared: false };
-    formData.mrp.inclusiveOfAllTaxes = true;
-    confidence['mrp.inclusiveOfAllTaxes'] = 95;
+    formData.mrp.inclusiveOfAllTaxes = taxCandidate.value as boolean;
+    confidence['mrp.inclusiveOfAllTaxes'] = taxCandidate.confidence;
     fieldDetails['mrp.inclusiveOfAllTaxes'] = {
-      value: true,
-      confidence: 'high',
-      confidenceScore: 95,
-      source: 'Text contains tax inclusion statement',
+      value: taxCandidate.value,
+      confidence: getConfidenceLevel(taxCandidate.confidence),
+      confidenceScore: taxCandidate.confidence,
+      source: taxCandidate.source,
+      sourceSide: taxCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
-    totalConfidenceSum += 95;
+    totalConfidenceSum += taxCandidate.confidence;
     console.log('[OCR Parser] ✓ Tax inclusive detected');
   }
 
@@ -583,6 +620,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(qtyResult.qty.confidence),
       confidenceScore: qtyResult.qty.confidence,
       source: qtyResult.qty.source,
+      sourceSide: qtyResult.qty.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted += 2;
@@ -600,6 +638,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(mfgCandidate.confidence),
       confidenceScore: mfgCandidate.confidence,
       source: mfgCandidate.source,
+      sourceSide: mfgCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -617,6 +656,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(impCandidate.confidence),
       confidenceScore: impCandidate.confidence,
       source: impCandidate.source,
+      sourceSide: impCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -632,6 +672,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(originCandidate.confidence),
       confidenceScore: originCandidate.confidence,
       source: originCandidate.source,
+      sourceSide: originCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -645,6 +686,20 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
     formData.manufactureYear = dates.mfgYear;
     confidence['manufactureMonth'] = 80;
     confidence['manufactureYear'] = 80;
+    fieldDetails['manufactureMonth'] = {
+      value: dates.mfgMonth,
+      confidence: 'high',
+      confidenceScore: 80,
+      source: `Month: ${dates.mfgMonth}`,
+      sourceSide: dates.sourceSide || 'unknown',
+    };
+    fieldDetails['manufactureYear'] = {
+      value: dates.mfgYear,
+      confidence: 'high',
+      confidenceScore: 80,
+      source: `Year: ${dates.mfgYear}`,
+      sourceSide: dates.sourceSide || 'unknown',
+    };
     usefulFieldsFound += 2;
     fieldsExtracted += 2;
     totalConfidenceSum += 160;
@@ -659,6 +714,20 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
     };
     confidence['bestBefore.month'] = 80;
     confidence['bestBefore.year'] = 80;
+    fieldDetails['bestBefore.month'] = {
+      value: dates.expMonth,
+      confidence: 'high',
+      confidenceScore: 80,
+      source: `Month: ${dates.expMonth}`,
+      sourceSide: dates.sourceSide || 'unknown',
+    };
+    fieldDetails['bestBefore.year'] = {
+      value: dates.expYear,
+      confidence: 'high',
+      confidenceScore: 80,
+      source: `Year: ${dates.expYear}`,
+      sourceSide: dates.sourceSide || 'unknown',
+    };
     usefulFieldsFound += 2;
     fieldsExtracted += 2;
     totalConfidenceSum += 160;
@@ -675,6 +744,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(phoneCandidate.confidence),
       confidenceScore: phoneCandidate.confidence,
       source: phoneCandidate.source,
+      sourceSide: phoneCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -693,6 +763,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(emailCandidate.confidence),
       confidenceScore: emailCandidate.confidence,
       source: emailCandidate.source,
+      sourceSide: emailCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -706,6 +777,13 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
     if (!formData.supplementary) formData.supplementary = { batchLot: '', barcode: '', fssaiLicence: '', inspectorNotes: '' };
     formData.supplementary.batchLot = batchCandidate.value as string;
     confidence['supplementary.batchLot'] = batchCandidate.confidence;
+    fieldDetails['supplementary.batchLot'] = {
+      value: batchCandidate.value,
+      confidence: getConfidenceLevel(batchCandidate.confidence),
+      confidenceScore: batchCandidate.confidence,
+      source: batchCandidate.source,
+      sourceSide: batchCandidate.sourceSide || 'unknown',
+    };
     usefulFieldsFound++;
     fieldsExtracted++;
     totalConfidenceSum += batchCandidate.confidence;
@@ -722,6 +800,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(barcodeCandidate.confidence),
       confidenceScore: barcodeCandidate.confidence,
       source: barcodeCandidate.source,
+      sourceSide: barcodeCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
@@ -740,6 +819,7 @@ export function parseOcrText(rawText: string, tesseractConfidence: number = 75):
       confidence: getConfidenceLevel(fssaiCandidate.confidence),
       confidenceScore: fssaiCandidate.confidence,
       source: fssaiCandidate.source,
+      sourceSide: fssaiCandidate.sourceSide || 'unknown',
     };
     usefulFieldsFound++;
     fieldsExtracted++;
